@@ -1,15 +1,12 @@
-"""ShopAide Chainlit 前端 — 可视化聊天界面
+"""ShopAide Chainlit 前端 — 流式输出 + 多轮记忆
 
 启动方式:
     chainlit run app.py
-
-首次启动前需先构建向量库:
-    python -c "from shopaide.knowledge.vector_store import build_vector_store; \
-               from shopaide.knowledge.policies import POLICIES; \
-               build_vector_store(POLICIES)"
 """
 
 import chainlit as cl
+from chainlit import AsyncLangchainCallbackHandler
+from langchain_core.messages import AIMessage, HumanMessage
 
 from shopaide.agent.agent import build_agent
 from shopaide.knowledge.vector_store import get_retriever
@@ -17,12 +14,12 @@ from shopaide.knowledge.vector_store import get_retriever
 
 @cl.on_chat_start
 async def on_chat_start():
-    """用户首次进入会话时，初始化 Agent 并存入 session"""
-    # 确保向量库已初始化（幂等操作）
+    """用户进入会话：初始化 Agent、历史记录为空、发送欢迎语"""
     get_retriever()
 
     agent = build_agent()
     cl.user_session.set("agent", agent)
+    cl.user_session.set("chat_history", [])
 
     await cl.Message(
         content=(
@@ -38,10 +35,30 @@ async def on_chat_start():
 
 @cl.on_message
 async def on_message(message: cl.Message):
-    """处理用户消息，交给 Agent 执行"""
-    agent: cl.user_session.get("agent")
+    """处理用户消息 —— 流式输出 + 多轮对话上下文"""
+    agent = cl.user_session.get("agent")
+    chat_history: list = cl.user_session.get("chat_history")
 
-    # 将消息发给 Agent（Chainlit 会自动处理 tool_call / final_answer 的渲染）
-    result = agent.invoke({"input": message.content})
+    # 配置 Chainlit 回调处理器：
+    # - stream_final_answer=True → token 级别逐字渲染
+    # - 工具调用中间步骤自动展示在界面侧边
+    cb = AsyncLangchainCallbackHandler(
+        stream_final_answer=True,
+    )
 
-    await cl.Message(content=result["output"]).send()
+    # cl.make_async 将同步 agent.invoke 放入线程池，
+    # callbacks 由 LangChain 内部分发给 AsyncLangchainCallbackHandler
+    result = await cl.make_async(agent.invoke)(
+        {
+            "input": message.content,
+            "chat_history": chat_history,
+        },
+        {"callbacks": [cb]},
+    )
+
+    answer = result["output"]
+
+    # 持久化本轮对话到 session（下次提问时作为上下文传入）
+    chat_history.append(HumanMessage(content=message.content))
+    chat_history.append(AIMessage(content=answer))
+    cl.user_session.set("chat_history", chat_history)
