@@ -7,6 +7,12 @@
     python tests/test_agent.py
 """
 
+import sys
+import io
+
+# 修复 Windows 控制台 GBK 编码无法处理 emoji 的问题
+sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
+
 from shopaide.agent.agent import build_agent
 
 
