@@ -1,7 +1,11 @@
 """工具模块 — 统一注册所有 Tools 供 Agent 使用"""
 
+from shopaide.database.session import init_db
 from shopaide.tools.order_tools import query_order_status, modify_shipping_address
 from shopaide.tools.knowledge_tool import search_return_policy
+
+# 系统启动时确保数据库表结构和种子数据已就位（幂等）
+init_db()
 
 # 所有工具汇总（后续新增工具只需追加到此列表）
 ALL_TOOLS = [
