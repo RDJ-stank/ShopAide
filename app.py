@@ -5,7 +5,6 @@
 """
 
 import chainlit as cl
-from chainlit import AsyncLangchainCallbackHandler
 from langchain_core.messages import AIMessage, HumanMessage
 
 from shopaide.agent.agent import build_agent
@@ -39,21 +38,20 @@ async def on_message(message: cl.Message):
     agent = cl.user_session.get("agent")
     chat_history: list = cl.user_session.get("chat_history")
 
-    # 配置 Chainlit 回调处理器：
-    # - stream_final_answer=True → token 级别逐字渲染
-    # - 工具调用中间步骤自动展示在界面侧边
-    cb = AsyncLangchainCallbackHandler(
+    # LangchainCallbackHandler:
+    #   stream_final_answer=True → token 级别逐字流式渲染最终回复
+    #   工具调用（Thought/Action/Observation）自动展示在侧边步骤面板
+    cb = cl.LangchainCallbackHandler(
         stream_final_answer=True,
     )
 
-    # cl.make_async 将同步 agent.invoke 放入线程池，
-    # callbacks 由 LangChain 内部分发给 AsyncLangchainCallbackHandler
-    result = await cl.make_async(agent.invoke)(
+    # 使用 agent.ainvoke() 异步调用，确保回调与 Agent 在同一事件循环中工作
+    result = await agent.ainvoke(
         {
             "input": message.content,
             "chat_history": chat_history,
         },
-        {"callbacks": [cb]},
+        config={"callbacks": [cb]},
     )
 
     answer = result["output"]
