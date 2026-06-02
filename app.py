@@ -38,25 +38,49 @@ async def on_message(message: cl.Message):
     agent = cl.user_session.get("agent")
     chat_history: list = cl.user_session.get("chat_history")
 
-    # LangchainCallbackHandler:
-    #   stream_final_answer=True → token 级别逐字流式渲染最终回复
-    #   工具调用（Thought/Action/Observation）自动展示在侧边步骤面板
-    cb = cl.LangchainCallbackHandler(
-        stream_final_answer=True,
-    )
+    # 创建一个空消息作为流式输出的容器
+    msg = cl.Message(content="")
+    await msg.send()
 
-    # 使用 agent.ainvoke() 异步调用，确保回调与 Agent 在同一事件循环中工作
-    result = await agent.ainvoke(
-        {
-            "input": message.content,
-            "chat_history": chat_history,
-        },
-        config={"callbacks": [cb]},
-    )
+    full_answer = ""
 
-    answer = result["output"]
+    # astream_events 是 LangChain 原生异步流式 API，
+    # 不依赖任何 Chainlit 回调，token 级别逐个产出事件
+    async for event in agent.astream_events(
+        {"input": message.content, "chat_history": chat_history},
+        version="v2",
+    ):
+        kind = event["event"]
 
-    # 持久化本轮对话到 session（下次提问时作为上下文传入）
-    chat_history.append(HumanMessage(content=message.content))
-    chat_history.append(AIMessage(content=answer))
-    cl.user_session.set("chat_history", chat_history)
+        # LLM 生成 token → 逐字追加到聊天界面
+        if kind == "on_chat_model_stream":
+            content = event["data"]["chunk"].content
+            if content:
+                full_answer += content
+                await msg.stream_token(content)
+
+        # 工具开始调用 → 在界面展示步骤
+        elif kind == "on_tool_start":
+            tool_name = event["name"]
+            tool_input = event["data"].get("input", {})
+            await cl.Message(
+                content=f"🔧 调用工具: `{tool_name}`\n参数: {tool_input}",
+                author="System",
+            ).send()
+
+        # 工具返回结果 → 展示在可折叠面板中
+        elif kind == "on_tool_end":
+            tool_output = event["data"].get("output", "")
+            await cl.Message(
+                content=f"📋 工具返回:\n```\n{tool_output}\n```",
+                author="System",
+            ).send()
+
+    # 流式完成，标记消息结束
+    await msg.update()
+
+    # 持久化本轮对话
+    if full_answer:
+        chat_history.append(HumanMessage(content=message.content))
+        chat_history.append(AIMessage(content=full_answer))
+        cl.user_session.set("chat_history", chat_history)
