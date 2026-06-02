@@ -22,6 +22,7 @@ def query_order_status(order_id: str) -> str:
         if not order:
             return f"未找到订单 {order_id}，请核实订单号是否正确。"
 
+        # 基本信息
         lines = [
             f"订单号：{order.order_id}",
             f"状态：{order.status}",
@@ -30,10 +31,24 @@ def query_order_status(order_id: str) -> str:
             f"当前位置：{order.current_location}",
             f"预计送达：{order.estimated_delivery}",
             f"收件人：{order.recipient}",
+            f"联系电话：{order.phone or '暂无'}",
             f"收件地址：{order.address}",
         ]
 
-        # 追加物流轨迹
+        # 商品信息
+        if order.item_name:
+            actual_pay = order.item_price * order.item_quantity - order.discount_amount
+            lines.append("")
+            lines.append("--- 商品信息 ---")
+            lines.append(f"商品：{order.item_name}")
+            lines.append(f"SKU：{order.item_sku}")
+            lines.append(f"单价：{order.item_price:.2f} 元 × {order.item_quantity}")
+            if order.discount_amount > 0:
+                lines.append(f"优惠：-{order.discount_amount:.2f} 元")
+            lines.append(f"实付：{actual_pay:.2f} 元")
+            lines.append(f"支付方式：{order.payment_method}")
+
+        # 物流轨迹
         trail = get_logistics_trail(session, order_id)
         if trail:
             lines.append("")

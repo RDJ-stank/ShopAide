@@ -1,10 +1,10 @@
-"""数据仓库层 — 订单 + 物流轨迹 + 退货 的原子数据库操作"""
+"""数据仓库层 — 订单 + 物流轨迹 + 退货 + 发票 的原子数据库操作"""
 
 from datetime import datetime, timedelta
 
 from sqlmodel import Session, select
 
-from shopaide.database.models import LogisticsEvent, Order, ReturnOrder
+from shopaide.database.models import Invoice, LogisticsEvent, Order, ReturnOrder
 
 _IMMUTABLE_STATUSES = {"已签收", "已取消"}
 
@@ -13,14 +13,22 @@ _IMMUTABLE_STATUSES = {"已签收", "已取消"}
 # 订单
 # ============================================================
 def get_order_by_id(session: Session, order_id: str) -> Order | None:
-    """根据订单号查询订单。"""
+    return session.exec(select(Order).where(Order.order_id == order_id)).first()
+
+
+def search_orders(session: Session, keyword: str) -> list[Order]:
+    """模糊搜索订单：匹配 order_id / recipient / phone（任一字段包含 keyword）。"""
+    k = f"%{keyword}%"
     return session.exec(
-        select(Order).where(Order.order_id == order_id)
-    ).first()
+        select(Order).where(
+            Order.order_id.contains(keyword)
+            | Order.recipient.contains(keyword)
+            | Order.phone.contains(keyword)
+        )
+    ).all()
 
 
 def update_order_address(session: Session, order_id: str, new_address: str) -> tuple[Order | None, str | None]:
-    """修改收货地址（含状态校验）。"""
     order = get_order_by_id(session, order_id)
     if not order:
         return None, f"未找到订单 {order_id}，请核实订单号是否正确。"
@@ -35,7 +43,6 @@ def update_order_address(session: Session, order_id: str, new_address: str) -> t
 # 物流轨迹
 # ============================================================
 def get_logistics_trail(session: Session, order_id: str) -> list[LogisticsEvent]:
-    """查询订单的完整物流轨迹，按时间升序排列。"""
     return session.exec(
         select(LogisticsEvent)
         .where(LogisticsEvent.order_id == order_id)
@@ -46,16 +53,7 @@ def get_logistics_trail(session: Session, order_id: str) -> list[LogisticsEvent]
 # ============================================================
 # 退货
 # ============================================================
-def create_return_order(
-    session: Session, order_id: str, reason: str
-) -> tuple[ReturnOrder | None, str | None]:
-    """提交退货申请（含完整业务校验）。
-
-    校验规则：
-    1. 订单必须存在且已签收
-    2. 签收后 7 天内支持无理由退货
-    3. 同一订单不能重复申请退货
-    """
+def create_return_order(session: Session, order_id: str, reason: str) -> tuple[ReturnOrder | None, str | None]:
     order = get_order_by_id(session, order_id)
     if not order:
         return None, f"未找到订单 {order_id}，请核实订单号是否正确。"
@@ -70,15 +68,12 @@ def create_return_order(
                     f"如为质量问题，请联系人工客服。"
                 )
         except ValueError:
-            pass  # 日期解析失败时不阻塞，仅跳过时效校验
+            pass
 
-    existing = session.exec(
-        select(ReturnOrder).where(ReturnOrder.order_id == order_id)
-    ).first()
+    existing = session.exec(select(ReturnOrder).where(ReturnOrder.order_id == order_id)).first()
     if existing:
         return None, f"订单 {order_id} 已存在退货申请（单号：{existing.return_id}），请勿重复提交。"
 
-    # 生成退货单号：RTN + 年月日 + - + 三位序号
     today = datetime.now().strftime("%Y%m%d")
     count = len(session.exec(
         select(ReturnOrder).where(ReturnOrder.return_id.like(f"RTN{today}-%"))
@@ -86,25 +81,53 @@ def create_return_order(
     return_id = f"RTN{today}-{count + 1:03d}"
 
     return_order = ReturnOrder(
-        return_id=return_id,
-        order_id=order_id,
-        reason=reason,
-        status="审核中",
-        apply_time=datetime.now().strftime("%Y-%m-%d %H:%M"),
+        return_id=return_id, order_id=order_id, reason=reason,
+        status="审核中", apply_time=datetime.now().strftime("%Y-%m-%d %H:%M"),
     )
     session.add(return_order)
     return return_order, None
 
 
 def get_return_by_id(session: Session, return_id: str) -> ReturnOrder | None:
-    """根据退货单号查询退货进度。"""
-    return session.exec(
-        select(ReturnOrder).where(ReturnOrder.return_id == return_id)
-    ).first()
+    return session.exec(select(ReturnOrder).where(ReturnOrder.return_id == return_id)).first()
 
 
 def get_return_by_order_id(session: Session, order_id: str) -> ReturnOrder | None:
-    """根据原订单号查询退货记录。"""
-    return session.exec(
-        select(ReturnOrder).where(ReturnOrder.order_id == order_id)
-    ).first()
+    return session.exec(select(ReturnOrder).where(ReturnOrder.order_id == order_id)).first()
+
+
+# ============================================================
+# 发票
+# ============================================================
+def get_invoice_by_order_id(session: Session, order_id: str) -> Invoice | None:
+    """查询订单的发票记录。无记录表示尚未开票。"""
+    return session.exec(select(Invoice).where(Invoice.order_id == order_id)).first()
+
+
+def create_invoice_reissue(
+    session: Session, order_id: str, new_title: str, tax_number: str = ""
+) -> tuple[Invoice | None, str | None]:
+    """补开发票（仅已开发票才能申请补开，且只能申请一次）。
+
+    校验：
+    1. 订单存在且发票状态为"已开"
+    2. 不能已存在一个"已申请补开"的记录
+    """
+    order = get_order_by_id(session, order_id)
+    if not order:
+        return None, f"未找到订单 {order_id}，请核实订单号是否正确。"
+
+    existing = get_invoice_by_order_id(session, order_id)
+    if not existing:
+        return None, f"订单 {order_id} 尚未开票，请先申请开具发票。"
+    if existing.status == "未开":
+        return None, f"订单 {order_id} 的发票尚未开具，请先联系客服申请开票。"
+    if existing.status == "已申请补开":
+        return None, f"订单 {order_id} 已存在补开申请（发票号：{existing.invoice_id}），请勿重复申请。"
+
+    # 更新发票抬头和状态
+    existing.title = new_title
+    existing.tax_number = tax_number
+    existing.status = "已申请补开"
+    session.add(existing)
+    return existing, None
