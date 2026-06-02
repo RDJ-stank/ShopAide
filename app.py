@@ -44,8 +44,11 @@ async def on_message(message: cl.Message):
 
     full_answer = ""
 
+    # 跟踪当前活跃的 Step（工具调用），用于流式写入工具输出
+    active_steps: dict[str, cl.Step] = {}
+
     # astream_events 是 LangChain 原生异步流式 API，
-    # 不依赖任何 Chainlit 回调，token 级别逐个产出事件
+    # 每次 LLM 产出 token 或工具开始/结束都会产出事件
     async for event in agent.astream_events(
         {"input": message.content, "chat_history": chat_history},
         version="v2",
@@ -59,22 +62,29 @@ async def on_message(message: cl.Message):
                 full_answer += content
                 await msg.stream_token(content)
 
-        # 工具开始调用 → 在界面展示步骤
+        # 工具开始调用 → 创建侧边栏 Step（用户主界面看不到）
         elif kind == "on_tool_start":
             tool_name = event["name"]
             tool_input = event["data"].get("input", {})
-            await cl.Message(
-                content=f"🔧 调用工具: `{tool_name}`\n参数: {tool_input}",
-                author="System",
-            ).send()
+            # 用 parent_id 将 Step 挂在当前消息下，界面侧边栏可折叠查看
+            step = cl.Step(
+                name=tool_name,
+                type="tool",
+                parent_id=msg.id,
+            )
+            step.input = str(tool_input)
+            step.output = ""
+            await step.send()
+            active_steps[tool_name] = step
 
-        # 工具返回结果 → 展示在可折叠面板中
+        # 工具返回结果 → 写入对应 Step 的 output
         elif kind == "on_tool_end":
+            tool_name = event["name"]
             tool_output = event["data"].get("output", "")
-            await cl.Message(
-                content=f"📋 工具返回:\n```\n{tool_output}\n```",
-                author="System",
-            ).send()
+            if tool_name in active_steps:
+                step = active_steps.pop(tool_name)
+                step.output = str(tool_output)
+                await step.update()
 
     # 流式完成，标记消息结束
     await msg.update()
