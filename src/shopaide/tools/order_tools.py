@@ -2,7 +2,11 @@
 
 from langchain_core.tools import tool
 
-from shopaide.database.repository import get_order_by_id, update_order_address
+from shopaide.database.repository import (
+    get_logistics_trail,
+    get_order_by_id,
+    update_order_address,
+)
 from shopaide.database.session import get_session
 
 
@@ -28,6 +32,15 @@ def query_order_status(order_id: str) -> str:
             f"收件人：{order.recipient}",
             f"收件地址：{order.address}",
         ]
+
+        # 追加物流轨迹
+        trail = get_logistics_trail(session, order_id)
+        if trail:
+            lines.append("")
+            lines.append("--- 物流轨迹 ---")
+            for t in trail:
+                lines.append(f"[{t.timestamp}] {t.location} — {t.status_desc}")
+
         return "\n".join(lines)
 
 
@@ -40,14 +53,12 @@ def modify_shipping_address(order_id: str, new_address: str) -> str:
         new_address: 新的收货地址全称
     """
     with get_session() as session:
-        # 先查是否存在并记录原地址
         order = get_order_by_id(session, order_id)
         if not order:
             return f"未找到订单 {order_id}，请核实订单号是否正确。"
 
         old_address = order.address
 
-        # 执行地址更新（repository 内部做状态校验）
         updated, error = update_order_address(session, order_id, new_address)
         if error:
             return error

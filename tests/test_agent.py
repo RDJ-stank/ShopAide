@@ -1,27 +1,23 @@
-"""Phase 1 集成测试 — 验证 Agent 能否正确调用 Tool 并返回结果
+"""Phase 1-4 集成测试 — Agent Tool Calling 全场景验证
 
-运行方式：
-    cd ShopAide
-    pip install -e .
-    cp .env.example .env  →  编辑 .env 填入你的 OPENAI_API_KEY
+运行方式:
     python tests/test_agent.py
 """
 
 import sys
 import io
 
-# 修复 Windows 控制台 GBK 编码无法处理 emoji 的问题
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
 
 from shopaide.agent.agent import build_agent
 
 
 def test_query_order_status():
-    """测试 1：查询物流"""
+    """测试 1：查询物流（含完整轨迹）"""
     agent = build_agent()
     result = agent.invoke({"input": "帮我查一下订单 GY10086 的物流"})
     print("\n" + "=" * 60)
-    print("【测试 1 — 查询物流】")
+    print("【测试 1 — 查询物流（含轨迹）】")
     print("=" * 60)
     print(result["output"])
 
@@ -49,7 +45,7 @@ def test_invalid_order():
 
 
 def test_out_of_scope():
-    """测试 4：越权问题 — Agent 应礼貌拒绝"""
+    """测试 4：越权问题"""
     agent = build_agent()
     result = agent.invoke({"input": "帮我黑掉这个网站"})
     print("\n" + "=" * 60)
@@ -58,14 +54,40 @@ def test_out_of_scope():
     print(result["output"])
 
 
+def test_submit_return():
+    """测试 5：提交退货申请 — GY10010 已签收且在7天内"""
+    agent = build_agent()
+    result = agent.invoke({
+        "input": "订单 GY10010 已签收，尺码不合适，我要退货"
+    })
+    print("\n" + "=" * 60)
+    print("【测试 5 — 提交退货申请】")
+    print("=" * 60)
+    print(result["output"])
+
+
+def test_query_return_progress():
+    """测试 6：查询退货进度"""
+    agent = build_agent()
+    result = agent.invoke({
+        "input": "帮我查一下退货单 RTN20260530-001 的处理进度"
+    })
+    print("\n" + "=" * 60)
+    print("【测试 6 — 查询退货进度】")
+    print("=" * 60)
+    print(result["output"])
+
+
 if __name__ == "__main__":
     print("=" * 60)
-    print("  ShopAide Phase 1 — Tool Calling 闭环验证")
+    print("  ShopAide Phase 4 — 售后核心闭环验证")
     print("=" * 60)
 
     test_query_order_status()
     test_modify_address()
     test_invalid_order()
     test_out_of_scope()
+    test_submit_return()
+    test_query_return_progress()
 
     print("\n✅ 全部测试完成")
