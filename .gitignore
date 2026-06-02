@@ -20,6 +20,9 @@ venv/
 .DS_Store
 Thumbs.db
 
-# Chainlit
-.chainlit/
+# Chainlit (generated files — keep config.toml)
+.chainlit/translations/
 .files/
+
+# ChromaDB 向量库持久化数据
+chroma_db/
