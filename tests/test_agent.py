@@ -87,9 +87,33 @@ def test_invoice():
     print(result["output"])
 
 
+def test_report_damage():
+    """测试 10：报告商品问题 — Agent 调用 report_damage → 自动判责"""
+    agent = build_agent()
+    result = agent.invoke({
+        "input": "订单 GY10010 收到的蓝牙耳机左耳没声音，可能是出厂瑕疵"
+    })
+    print("\n" + "=" * 60)
+    print("【10 — 智能判责（商品瑕疵）】")
+    print("=" * 60)
+    print(result["output"])
+
+
+def test_order_alert():
+    """测试 11：时效预警 — Agent 调用 check_order_alert"""
+    agent = build_agent()
+    result = agent.invoke({
+        "input": "GY10086 怎么还没到，也太慢了吧"
+    })
+    print("\n" + "=" * 60)
+    print("【11 — 时效预警（物流超时）】")
+    print("=" * 60)
+    print(result["output"])
+
+
 if __name__ == "__main__":
     print("=" * 60)
-    print("  ShopAide Phase 5 — Tier 2 信息查询增强")
+    print("  ShopAide Phase 6 — Tier 3 智能判断与主动服务")
     print("=" * 60)
 
     test_query_order_status()
@@ -101,5 +125,7 @@ if __name__ == "__main__":
     test_search_orders()
     test_product_info()
     test_invoice()
+    test_report_damage()
+    test_order_alert()
 
     print("\n✅ 全部测试完成")

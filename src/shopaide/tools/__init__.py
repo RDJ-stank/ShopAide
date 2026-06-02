@@ -6,17 +6,22 @@ from shopaide.tools.knowledge_tool import search_return_policy
 from shopaide.tools.return_tools import submit_return_request, query_return_progress
 from shopaide.tools.search_tools import search_orders, query_product_info
 from shopaide.tools.invoice_tools import query_invoice_status, request_invoice_reissue
+from shopaide.tools.damage_tools import report_damage, check_order_alert
+from shopaide.tools.escalation_tools import escalate_to_human
 
 init_db()
 
 ALL_TOOLS = [
     query_order_status,
+    search_orders,
+    query_product_info,
     modify_shipping_address,
     submit_return_request,
     query_return_progress,
-    search_return_policy,
-    search_orders,
-    query_product_info,
     query_invoice_status,
     request_invoice_reissue,
+    search_return_policy,
+    report_damage,
+    check_order_alert,
+    escalate_to_human,
 ]

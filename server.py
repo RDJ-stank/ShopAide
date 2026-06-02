@@ -7,8 +7,12 @@ from pydantic import BaseModel
 from sqlmodel import Session
 
 from shopaide.database.repository import (
+    check_order_alert,
+    create_dispute_case,
+    create_escalation,
     create_invoice_reissue,
     create_return_order,
+    get_dispute_by_id,
     get_invoice_by_order_id,
     get_logistics_trail,
     get_order_by_id,
@@ -26,7 +30,7 @@ async def lifespan(app: FastAPI):
     yield
 
 
-app = FastAPI(title="ShopAide API", version="0.4.0", lifespan=lifespan)
+app = FastAPI(title="ShopAide API", version="0.5.0", lifespan=lifespan)
 
 
 def get_db():
@@ -72,6 +76,7 @@ class InvoiceResponse(BaseModel):
     invoice_id: str; order_id: str; title: str; tax_number: str
     status: str; issue_time: str; amount: float
 
+
 class ReissueRequest(BaseModel):
     new_title: str; tax_number: str = ""
 
@@ -80,6 +85,31 @@ class ProductResponse(BaseModel):
     order_id: str; item_name: str; item_sku: str
     item_price: float; item_quantity: int
     discount_amount: float; payment_method: str
+
+
+class CreateDisputeRequest(BaseModel):
+    order_id: str; description: str; damage_type: str
+
+
+class DisputeResponse(BaseModel):
+    case_id: str; order_id: str; description: str; damage_type: str
+    responsibility: str; resolution: str
+    compensation_amount: float; status: str
+    created_time: str; resolved_time: str
+
+
+class AlertResponse(BaseModel):
+    has_alert: bool; alert_type: str; detail: str; suggestion: str
+
+
+class CreateEscalationRequest(BaseModel):
+    order_id: str; reason: str; context_summary: str
+
+
+class EscalationResponse(BaseModel):
+    escalation_id: str; order_id: str; reason: str
+    user_description: str; context_summary: str
+    status: str; created_time: str
 
 
 # ============================================================
@@ -130,6 +160,11 @@ def get_products(order_id: str, session: Session = Depends(get_db)):
     return order
 
 
+@app.get("/api/orders/{order_id}/alert", response_model=AlertResponse)
+def get_alert(order_id: str, session: Session = Depends(get_db)):
+    return check_order_alert(session, order_id)
+
+
 # ============================================================
 # 退货
 # ============================================================
@@ -166,3 +201,31 @@ def reissue_invoice(order_id: str, body: ReissueRequest, session: Session = Depe
     if error:
         raise HTTPException(status_code=400, detail=error)
     return invoice
+
+
+# ============================================================
+# 判责工单
+# ============================================================
+@app.post("/api/disputes/", response_model=DisputeResponse, status_code=201)
+def create_dispute(body: CreateDisputeRequest, session: Session = Depends(get_db)):
+    dispute, error = create_dispute_case(session, body.order_id, body.description, body.damage_type)
+    if error:
+        raise HTTPException(status_code=400, detail=error)
+    return dispute
+
+
+@app.get("/api/disputes/{case_id}", response_model=DisputeResponse)
+def get_dispute(case_id: str, session: Session = Depends(get_db)):
+    dispute = get_dispute_by_id(session, case_id)
+    if not dispute:
+        raise HTTPException(status_code=404, detail=f"判责工单 {case_id} 不存在")
+    return dispute
+
+
+# ============================================================
+# 升级工单
+# ============================================================
+@app.post("/api/escalations/", response_model=EscalationResponse, status_code=201)
+def create_escalation_api(body: CreateEscalationRequest, session: Session = Depends(get_db)):
+    esc = create_escalation(session, body.order_id, body.reason, body.context_summary, body.context_summary)
+    return esc
