@@ -150,6 +150,18 @@ def create_dispute_case(
     if existing:
         return None, f"订单 {order_id} 已有处理中的判责工单（编号：{existing.case_id}），请勿重复提交。"
 
+    # 检查是否已有活跃的退货工单
+    active_return = session.exec(select(ReturnOrder).where(
+        ReturnOrder.order_id == order_id,
+        ReturnOrder.status.not_in(["已完成", "已拒绝"]),
+    )).first()
+    if active_return:
+        return None, (
+            f"订单 {order_id} 已有退货工单（编号：{active_return.return_id}）"
+            f"正在处理中（状态：{active_return.status}），无需重复提交判责。"
+            f"请告知用户关注退货进度或联系客服查询。"
+        )
+
     responsibility, resolution = _determine_responsibility(order, damage_type)
 
     today = datetime.now().strftime("%Y%m%d")
@@ -188,19 +200,18 @@ def check_order_alert(session: Session, order_id: str) -> dict:
 
     # 待发货超过 48h
     if order.status == "待发货":
-        # 模拟：取订单创建时间为estimated_delivery-3天
-        try:
-            delivery_dt = datetime.strptime(order.estimated_delivery, "%Y-%m-%d")
-            approx_create = delivery_dt - timedelta(days=5)
-            if now > approx_create + timedelta(hours=48):
-                return {
-                    "has_alert": True,
-                    "alert_type": "延迟发货",
-                    "detail": f"订单 {order_id} 已超过 48 小时未发货。",
-                    "suggestion": "建议催促卖家发货，或申请取消订单并退款。如为预售商品请忽略。",
-                }
-        except ValueError:
-            pass
+        if order.created_time:
+            try:
+                created_dt = datetime.strptime(order.created_time, "%Y-%m-%d %H:%M")
+                if now > created_dt + timedelta(hours=48):
+                    return {
+                        "has_alert": True,
+                        "alert_type": "延迟发货",
+                        "detail": f"订单 {order_id} 于 {order.created_time} 下单，已超过 48 小时未发货。",
+                        "suggestion": "建议催促卖家发货，或申请取消订单并退款。如为预售商品请忽略。",
+                    }
+            except ValueError:
+                pass
 
     # 运输中：最后物流事件超过 48h → 物流停滞
     if order.status == "运输中":

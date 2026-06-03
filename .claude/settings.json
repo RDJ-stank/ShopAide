@@ -1,7 +1,9 @@
 {
   "permissions": {
     "allow": [
-      "Bash(python -c \"from shopaide.knowledge.policies import POLICIES; from shopaide.knowledge.vector_store import build_vector_store; build_vector_store\\(POLICIES\\); print\\('Vector store built successfully'\\)\")"
+      "Bash(python -c \"from shopaide.knowledge.policies import POLICIES; from shopaide.knowledge.vector_store import build_vector_store; build_vector_store\\(POLICIES\\); print\\('Vector store built successfully'\\)\")",
+      "Bash(rm -rf chroma_db)",
+      "Bash(python -c \"from shopaide.knowledge.policies import POLICIES; from shopaide.knowledge.vector_store import build_vector_store; build_vector_store\\(POLICIES\\); print\\(f'Vector store rebuilt with {len\\(POLICIES\\)} policies'\\)\")"
     ]
   }
 }

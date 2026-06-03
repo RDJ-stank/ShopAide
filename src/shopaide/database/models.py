@@ -53,6 +53,7 @@ class Order(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
     order_id: str = Field(max_length=32, unique=True, index=True)
     status: str = Field(max_length=16, default=OrderStatus.PENDING_SHIPPING)
+    created_time: str = Field(max_length=32, default="", description="下单时间")
     carrier: str = Field(max_length=64, default="")
     tracking_number: str = Field(max_length=64, default="")
     current_location: str = Field(max_length=128, default="")
