@@ -2,28 +2,28 @@
 
 基于 **LangChain + FastAPI + ChromaDB + Chainlit** 的电商智能售后 Copilot。
 
-Agent 能够自主调用后端工具（查询物流、修改地址），并结合本地 RAG 知识库检索退换货政策，回答用户的售后问题。
+Agent 拥有 **12 个工具**，覆盖订单查询、物流轨迹、退货管理、智能判责、时效预警、发票管理、政策检索（RAG）和情绪升级，能自主从对话中识别用户意图并调用对应后端工具执行售后业务。
 
 ---
 
-## 架构概览
+## 项目全貌
 
 ```
-用户 → Chainlit(UI) → AgentExecutor → Tools ─→ repository ─→ SQLite
-                 ↓                        ↓
-         流式输出 + 多轮记忆        RAG 检索 ─→ ChromaDB
-                                    ↑
-                              FastAPI(server.py) ── REST API 对外开放
+用户 ─→ Chainlit(UI) ─→ Agent(12 tools) ─→ repository ─→ SQLite
+              │ 流式输出                      │
+              │ 多轮记忆            RAG 检索 ─→ ChromaDB
+              │                           ↑
+        FastAPI(server.py) ─── 17 个 REST 端点
 ```
 
-| 层级 | 技术 | 文件 |
-|------|------|------|
-| UI 层 | Chainlit（流式 + 多轮记忆） | `app.py` |
-| API 层 | FastAPI + Pydantic | `server.py` |
-| Agent 层 | LangChain Tool Calling | `src/shopaide/agent/agent.py` |
-| Tool 层 | `@tool` 装饰器 → repository | `src/shopaide/tools/` |
-| 数据层 | SQLModel + SQLite（同步） | `src/shopaide/database/` |
-| 知识层 | ChromaDB + BGE 中文 Embedding | `src/shopaide/knowledge/` |
+| 层级 | 技术栈 | 核心文件 |
+|------|--------|---------|
+| UI 层 | Chainlit 2.x（astream_events 流式 + session 多轮记忆） | `app.py` |
+| API 层 | FastAPI + Pydantic v2 + Depends 依赖注入 | `server.py` |
+| Agent 层 | LangChain Tool Calling + ChatOpenAI（兼容 DeepSeek/Qwen） | `src/shopaide/agent/agent.py` |
+| Tool 层 | 12 个 `@tool` 函数，底层调用 repository | `src/shopaide/tools/` |
+| 数据层 | SQLModel + SQLite 同步引擎，6 张表 | `src/shopaide/database/` |
+| 知识层 | ChromaDB + BAAI/bge-small-zh-v1.5 中文 Embedding（本地） | `src/shopaide/knowledge/` |
 
 ---
 
@@ -31,223 +31,237 @@ Agent 能够自主调用后端工具（查询物流、修改地址），并结�
 
 ```
 ShopAide/
-├── pyproject.toml                # 项目元数据与依赖声明
-├── .env.example                  # 环境变量模板（LLM 提供商 + API Key）
+├── pyproject.toml              # 项目元数据 + 所有依赖
+├── .env.example                # 环境变量模板（支持 DeepSeek/Qwen/OpenAI）
 ├── .gitignore
 ├── README.md
 │
-├── app.py                        # Chainlit 聊天入口（流式输出 + 多轮记忆）
-├── server.py                     # FastAPI REST API 入口
+├── app.py                      # Chainlit 聊天入口（流式 astream_events + 多轮记忆）
+├── server.py                   # FastAPI REST API（17 个端点）
 ├── .chainlit/
-│   └── config.toml               # Chainlit UI 配置
+│   └── config.toml             # Chainlit UI 配置
 │
 ├── src/shopaide/
 │   ├── __init__.py
-│   ├── config.py                 # 全局配置（.env → LLM 参数）
+│   ├── config.py               # LLM 多提供商预设 + 全局配置
 │   │
 │   ├── agent/
-│   │   ├── __init__.py
-│   │   └── agent.py              # Agent 构建 + SYSTEM_PROMPT
+│   │   └── agent.py            # SYSTEM_PROMPT（含情绪识别/判责/预警规则）
 │   │
 │   ├── tools/
-│   │   ├── __init__.py           # 工具汇总 + init_db() 启动挂载
-│   │   ├── order_tools.py        # 业务工具：查询物流 / 修改地址
-│   │   └── knowledge_tool.py     # RAG 工具：search_return_policy
+│   │   ├── __init__.py          # 12 工具注册 + init_db() 启动挂载
+│   │   ├── order_tools.py       # query_order_status / modify_shipping_address
+│   │   ├── return_tools.py      # submit_return_request / query_return_progress
+│   │   ├── search_tools.py      # search_orders / query_product_info
+│   │   ├── invoice_tools.py     # query_invoice_status / request_invoice_reissue
+│   │   ├── damage_tools.py      # report_damage / check_order_alert
+│   │   ├── escalation_tools.py  # escalate_to_human
+│   │   └── knowledge_tool.py    # search_return_policy（RAG）
 │   │
 │   ├── database/
-│   │   ├── __init__.py
-│   │   ├── models.py             # Order 表 + OrderStatus 枚举
-│   │   ├── session.py            # 同步引擎 + init_db() 种子数据 + get_session()
-│   │   └── repository.py         # 数据访问：get_order_by_id / update_order_address
+│   │   ├── models.py            # 6 张表：Order / LogisticsEvent / ReturnOrder
+│   │   │                        #        Invoice / DisputeCase / Escalation
+│   │   ├── session.py           # 同步引擎 + init_db() + 11 个种子用户
+│   │   └── repository.py        # 13 个原子函数（含判责/预警/升级）
 │   │
 │   └── knowledge/
-│       ├── __init__.py
-│       ├── policies.py           # 退换货政策文本（6 条规则）
-│       └── vector_store.py       # ChromaDB 向量存储 + retriever
+│       ├── policies.py          # 9 条售后政策（退货/保修/价保/仅退款等）
+│       └── vector_store.py      # ChromaDB 向量存储 + retriever
 │
 └── tests/
-    ├── __init__.py
-    ├── test_agent.py             # Phase 1 工具调用集成测试（4 场景）
-    └── test_rag.py               # Phase 2 RAG 检索测试（4 场景）
+    ├── test_agent.py             # 11 个 Agent 集成测试场景
+    └── test_rag.py               # 4 个 RAG 检索测试场景
 ```
+
+---
+
+## 数据库设计（6 张表）
+
+| 表名 | 说明 | 种子数据 |
+|------|------|----------|
+| `orders` | 订单主表（含商品/支付/收件人信息） | 11 条（运输中 4 / 已签收 4 / 待发货 2 / 已取消 1） |
+| `logistics_events` | 物流轨迹事件表 | 15 条 |
+| `return_orders` | 退货单（6 种状态） | 3 条（已完成 / 审核中 / 待寄回） |
+| `invoices` | 发票（未开/已开/已申请补开） | 3 条（个人 / 企业 / 未开） |
+| `dispute_cases` | 判责工单（5 种类型 × 4 种责任方） | 2 条（已解决 / 处理中） |
+| `escalations` | 升级工单（情绪升级/超AI能力升级） | 按需动态创建 |
+
+---
+
+## Agent 12 个工具全览
+
+### 订单与物流（3 个）
+
+| # | 工具 | 功能 | 触发场景 |
+|---|------|------|----------|
+| 1 | `query_order_status` | 查订单 + 商品信息 + 完整物流轨迹 + 联系电话 | "帮我查一下 GY10086" |
+| 2 | `search_orders` | 按订单号/姓名/手机号模糊搜索 | "我不记得订单号，手机号是139..." |
+| 3 | `query_product_info` | 查商品 SKU/单价/数量/优惠/实付 | "GY20480 买了什么" |
+
+### 地址与退货（3 个）
+
+| # | 工具 | 功能 | 触发场景 |
+|---|------|------|----------|
+| 4 | `modify_shipping_address` | 修改收货地址（校验状态） | "把地址改成杭州" |
+| 5 | `submit_return_request` | 提交退货申请（校验签收+7天窗口+防重复） | "我要退货" |
+| 6 | `query_return_progress` | 查询退货进度（审核→寄回→验收→退款） | "退货到哪一步了" |
+
+### 发票与政策（3 个）
+
+| # | 工具 | 功能 | 触发场景 |
+|---|------|------|----------|
+| 7 | `query_invoice_status` | 查发票状态（未开/已开/补开中） | "开发票了吗" |
+| 8 | `request_invoice_reissue` | 补开发票+修改抬头（校验已开票+防重复） | "发票抬头改成公司" |
+| 9 | `search_return_policy` | RAG 检索 9 条售后政策 | "能保修吗/能价保吗" |
+
+### 智能判责与主动服务（3 个）
+
+| # | 工具 | 功能 | 触发场景 |
+|---|------|------|----------|
+| 10 | `report_damage` | 创建判责工单（自动判定责任方+分流方案+检测已有退货） | "收到的东西坏了" |
+| 11 | `check_order_alert` | 时效预警（延迟发货/物流停滞/配送超时） | "怎么还没到" |
+| 12 | `escalate_to_human` | 创建升级工单+转达客服热线（情绪触发/投诉触发） | "太差劲了我要投诉" |
+
+---
+
+## REST API 接口一览（17 个端点）
+
+### 健康检查
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/api/health` | `{"status":"ok"}` |
+
+### 订单（6 个）
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/api/orders/{order_id}` | 查询订单详情 |
+| GET | `/api/orders/search?keyword=` | 多维度搜索订单 |
+| GET | `/api/orders/{order_id}/logistics` | 物流轨迹 |
+| GET | `/api/orders/{order_id}/products` | 商品详情 |
+| GET | `/api/orders/{order_id}/alert` | 时效预警 |
+| PUT | `/api/orders/{order_id}/address` | 修改地址 |
+
+### 退货（2 个）
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| POST | `/api/returns/` | 提交退货申请 |
+| GET | `/api/returns/{return_id}` | 查询退货进度 |
+
+### 发票（2 个）
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/api/invoices/{order_id}` | 查询发票状态 |
+| POST | `/api/invoices/{order_id}/reissue` | 补开发票 |
+
+### 判责与升级（2 个）
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| POST | `/api/disputes/` | 创建判责工单 |
+| GET | `/api/disputes/{case_id}` | 查询判责工单 |
+| POST | `/api/escalations/` | 创建升级工单 |
+
+---
+
+## 种子用户数据（11 个用户）
+
+| 订单号 | 状态 | 收件人 | 手机 | 城市 | 商品 | 金额 |
+|--------|------|--------|------|------|------|------|
+| GY10086 | 运输中 | 张三 | 138-0000-1111 | 北京 | 春季男士运动夹克 | ¥359 |
+| GY10099 | 运输中 | 赵六 | 136-0000-4444 | 成都 | 华为 MateBook 14 | ¥5,699 |
+| GY10101 | 运输中 | 孙七 | 135-0000-5555 | 武汉 | SK-II 神仙水 230ml | ¥1,270 |
+| GY10105 | 运输中 | 陈十一 | 131-0000-9999 | 杭州 | 三只松鼠坚果礼包 | ¥148 |
+| GY10010 | 已签收 | 李四 | 139-0000-2222 | 上海 | 蓝牙降噪耳机 Pro | ¥299 |
+| GY10012 | 已签收 | 刘八 | 133-0000-6666 | 南京 | Nike Air Max 270 | ¥849 |
+| GY10015 | 已签收 | 周九 | 132-0000-7777 | 杭州 | 戴森 V15 吸尘器 | ¥3,590 |
+| GY10102 | 已签收 | 吴十 | 134-0000-8888 | 广州 | 小米空气净化器 4 Pro | ¥1,299 |
+| GY20480 | 待发货 | 王五 | 137-0000-3333 | 深圳 | 有机绿茶礼盒装 250g | ¥246 |
+| GY10103 | 待发货 | 郑十二 | 130-0000-1110 | 重庆 | LEGO 兰博基尼 42115 | ¥2,799 |
+| GY10104 | 已取消 | 冯十三 | 129-0000-1111 | 长沙 | Apple AirPods Pro 2 | ¥1,799 |
+
+> GY10086 物流轨迹最后更新为 2026-05-30，距今 >48h，用于测试物流停滞预警
+> GY20480 创建时间为 2026-06-01，距今 >72h，用于测试延迟发货预警
+> GY10102 有退货单 RTN20260601-001（审核中），用于测试判责防重复逻辑
 
 ---
 
 ## 系统验证步骤
 
 ### 前提条件
-
 - Python >= 3.11
 - 有效的 LLM API Key（支持 DeepSeek / 通义千问 / OpenAI）
 
-### 第 1 步：安装依赖
+### 第 1 步：安装
 
 ```bash
 cd ShopAide
 pip install -e ".[dev]"
 ```
 
-### 第 2 步：配置环境变量
+### 第 2 步：配置 LLM
 
 ```bash
 cp .env.example .env
+# 编辑 .env，填写 LLM_PROVIDER 和 OPENAI_API_KEY
 ```
-
-编辑 `.env`，根据你的 LLM 提供商填写：
-
-```ini
-# 三选一：deepseek / qwen / openai
-LLM_PROVIDER=deepseek
-OPENAI_API_KEY=sk-你的真实key
-```
-
-> `LLM_PROVIDER=deepseek` 会自动设置 `base_url=https://api.deepseek.com/v1` 和 `model=deepseek-chat`，无需手动填写。
 
 ### 第 3 步：验证数据库层
 
 ```bash
 python -c "
 from shopaide.database.session import init_db, get_session
-from shopaide.database.repository import get_order_by_id, update_order_address
-
+from shopaide.database.repository import get_order_by_id
 init_db()
 with get_session() as s:
-    order = get_order_by_id(s, 'GY10086')
-    print(f'订单 {order.order_id}: {order.recipient} - {order.status}')
-    print('数据库层验证通过')
+    o = get_order_by_id(s, 'GY10086')
+    print(f'{o.order_id}: {o.recipient} - {o.status} - {o.item_name}')
+print('OK')
 "
 ```
 
-预期输出：
-
-```
-订单 GY10086: 张三 - 运输中
-数据库层验证通过
-```
-
-### 第 4 步：验证 Agent 工具调用（4 个测试场景）
+### 第 4 步：运行 Agent 集成测试（11 场景）
 
 ```bash
 python tests/test_agent.py
 ```
 
-预期输出：
+覆盖：查物流、搜订单、商品详情、改地址、退货申请、退货进度、发票查询、智能判责、时效预警。
 
-```
-============================================================
-  ShopAide Phase 1 — Tool Calling 闭环验证
-============================================================
-
-============================================================
-【测试 1 — 查询物流】
-============================================================
-订单 GY10086 的物流信息如下：...
-
-============================================================
-【测试 2 — 修改地址】
-============================================================
-已成功修改订单 GY10086 的收货地址...
-
-============================================================
-【测试 3 — 不存在的订单】
-============================================================
-未找到订单号为 GY99999 的订单...
-
-============================================================
-【测试 4 — 越权拒绝】
-============================================================
-抱歉，我无法协助进行任何非法活动...
-
-✅ 全部测试完成
-```
-
-### 第 5 步：验证 RAG 知识检索（4 个测试场景）
+### 第 5 步：运行 RAG 检索测试（4 场景）
 
 ```bash
 python tests/test_rag.py
 ```
 
-> 首次运行会自动下载 BAAI/bge-small-zh-v1.5 嵌入模型（约 100MB），后续启动复用缓存。
+首次运行会下载 BAAI/bge-small-zh-v1.5 嵌入模型（约 100MB）。
 
-预期输出：
-
-```
-============================================================
-  ShopAide Phase 2 — RAG 知识检索验证
-============================================================
-
-============================================================
-【测试 1 — 向量库构建 + 检索测试】
-============================================================
-✅ 向量库构建 + 检索测试通过
-
-============================================================
-【测试 2 — Agent + RAG：退货政策问答】
-============================================================
-✅ Agent + RAG 政策问答测试通过
-
-============================================================
-【测试 3 — Agent + RAG：退款时效问答】
-============================================================
-✅ Agent + RAG 退款时效问答测试通过
-
-============================================================
-【测试 4 — Agent + RAG：特殊商品不可退】
-============================================================
-✅ Agent + RAG 特殊商品问答测试通过
-
-✅ 全部 RAG 测试完成
-```
-
-### 第 6 步：验证 FastAPI REST 接口
-
-启动服务器：
+### 第 6 步：验证 FastAPI
 
 ```bash
 uvicorn server:app --reload --port 9090
 ```
 
-另开终端，逐条验证：
-
 ```bash
 # 健康检查
 curl http://localhost:9090/api/health
-# → {"status":"ok"}
 
-# 查询订单
-curl http://localhost:9090/api/orders/GY10086
-# → {"order_id":"GY10086","status":"运输中","carrier":"顺丰速运",...}
+# 搜索订单
+curl "http://localhost:9090/api/orders/search?keyword=张三"
 
-# 查询不存在的订单
-curl http://localhost:9090/api/orders/GY99999
-# → 404 — {"detail":"订单 GY99999 不存在"}
+# 物流轨迹
+curl http://localhost:9090/api/orders/GY10086/logistics
 
-# 修改地址
-curl -X PUT http://localhost:9090/api/orders/GY10086/address \
+# 时效预警
+curl http://localhost:9090/api/orders/GY20480/alert
+
+# 判责工单
+curl -X POST http://localhost:9090/api/disputes/ \
   -H "Content-Type: application/json" \
-  -d '{"new_address":"浙江省杭州市西湖区"}'
-# → {"success":true,"message":"地址修改成功",...}
+  -d '{"order_id":"GY10086","description":"包装破损","damage_type":"物流损坏"}'
 
-# 尝试修改已签收订单（应被拒绝）
-curl -X PUT http://localhost:9090/api/orders/GY10010/address \
+# 升级工单
+curl -X POST http://localhost:9090/api/escalations/ \
   -H "Content-Type: application/json" \
-  -d '{"new_address":"北京"}'
-# → 400 — {"detail":"订单 GY10010 当前状态为「已签收」，不支持修改地址。"}
-```
-
-或使用 Python 一键验证：
-
-```bash
-python -c "
-import requests
-BASE = 'http://localhost:9090'
-assert requests.get(f'{BASE}/api/health').json() == {'status': 'ok'}
-assert requests.get(f'{BASE}/api/orders/GY10086').status_code == 200
-assert requests.get(f'{BASE}/api/orders/GY99999').status_code == 404
-assert requests.put(f'{BASE}/api/orders/GY10086/address', json={'new_address':'杭州'}).json()['success']
-assert requests.put(f'{BASE}/api/orders/GY10010/address', json={'new_address':'北京'}).status_code == 400
-print('All API tests passed')
-"
+  -d '{"order_id":"GY10086","reason":"用户投诉","context_summary":"用户情绪激动要求转人工"}'
 ```
 
 ### 第 7 步：启动 Chainlit 聊天界面
@@ -256,35 +270,17 @@ print('All API tests passed')
 chainlit run app.py
 ```
 
-浏览器打开 `http://localhost:8000`，尝试以下对话：
+浏览器打开 `http://localhost:8000`，推荐测试下列对话：
 
 | 测试输入 | 预期行为 |
 |----------|----------|
-| "帮我查一下订单 GY10086 的物流" | Agent 调用 `query_order_status`，返回物流详情 |
-| "把 GY10086 的地址改成广州" | Agent 调 `modify_shipping_address`，返回修改结果 |
-| "我买的东西签收 5 天了还能退吗" | Agent 调 `search_return_policy`，基于政策原文回答 |
-| "护肤品拆开了能退吗" | Agent 调 `search_return_policy`，告知不可退 |
-| "刚才那个订单现在到哪了" | 多轮记忆生效，Agent 能理解"刚才"指 GY10086 |
-
----
-
-## API 接口一览
-
-| 方法 | 路径 | 说明 | 成功 | 失败 |
-|------|------|------|------|------|
-| GET | `/api/health` | 健康检查 | 200 `{"status":"ok"}` | — |
-| GET | `/api/orders/{order_id}` | 查询订单详情 | 200 Order JSON | 404 `{"detail":"..."}` |
-| PUT | `/api/orders/{order_id}/address` | 修改收货地址 | 200 `{"success":true,...}` | 400 `{"detail":"..."}` |
-
----
-
-## Agent 拥有的工具
-
-| 工具名 | 功能 | 数据来源 |
-|--------|------|----------|
-| `query_order_status` | 查询订单物流状态与详情 | SQLite → repository |
-| `modify_shipping_address` | 修改收货地址（含状态校验） | SQLite → repository |
-| `search_return_policy` | 检索退换货政策与售后规则 | ChromaDB 向量库 |
+| "帮我查一下 GY10099" | 流式输出：赵六 MateBook + 物流轨迹 + 商品信息 |
+| "搜一下收件人叫周九的订单" | 返回 GY10015 戴森吸尘器 |
+| "GY20480 怎么还没发货" | 调 check_order_alert → 延迟发货预警 + 建议 |
+| "GY10010 我要退货，尺码不对" | 提示已有退货记录或提交新申请 |
+| "GY10102 净化器噪音很大" | 调 report_damage → 检出 RTN20260601-001 退货单 |
+| "耳机三个月了还能保修吗" | 调 search_return_policy → 检索保修政策 |
+| "你们太差劲了我要投诉" | 调 escalate_to_human → 升级工单 + 客服热线 |
 
 ---
 
@@ -292,10 +288,26 @@ chainlit run app.py
 
 | 决策 | 选择 | 原因 |
 |------|------|------|
-| 数据库 | SQLite + SQLModel（同步） | MVP 零配置，单文件，后续可换 PostgreSQL |
+| 数据库 | SQLite + SQLModel（同步） | MVP 零配置单文件，后续可换 PostgreSQL |
+| 会话管理 | `contextmanager` + `Depends` 注入 | 自动 commit/rollback/close，无泄漏 |
 | 向量库 | ChromaDB（本地持久化） | 嵌入式运行，无需额外服务 |
 | Embedding | BAAI/bge-small-zh-v1.5 | 中文检索 SOTA 轻量模型，本地 CPU 推理 |
-| LLM 连接 | 兼容 OpenAI API 协议 | 一套代码支持 DeepSeek / Qwen / OpenAI |
-| 流式输出 | AsyncLangchainCallbackHandler | Chainlit 原生支持，token 级渲染 |
-| 对话记忆 | cl.user_session + chat_history | Chainlit 会话天然隔离，比 LangChain Memory 更轻量 |
-| ORM 与 API Schema | 分离（Pydantic v2） | 数据层与接口层解耦，互不影响 |
+| LLM | OpenAI-compatible API | 一套代码支持 DeepSeek/Qwen/OpenAI |
+| 流式输出 | `agent.astream_events(v2)` 手动迭代 | 零回调黑盒，每个 token/工具调用显式控制 |
+| 对话记忆 | `cl.user_session` + `chat_history` | Chainlit 会话天然隔离 |
+| 判责逻辑 | Python 规则引擎（非 LLM） | 确定性结果，不可幻觉 |
+| 情绪升级 | LLM 识别关键词 → 强制调工具 | prompt 中写"第一个动作必须是调工具" |
+| 模型与 API Schema | 分离（Pydantic v2） | 数据层 ↔ 接口层解耦 |
+
+---
+
+## 演进路线（已完成）
+
+| Phase | 主题 | 工具数 | 核心交付 |
+|-------|------|--------|----------|
+| Phase 1 | Tool Calling 闭环 | 2 | LangChain Agent + mock 工具 |
+| Phase 2 | RAG 知识库 + Chainlit | 3 | ChromaDB + BGE Embedding + 聊天 UI |
+| Phase 3 | 数据持久化 + API | 3 | SQLModel + FastAPI + 流式输出 |
+| Phase 4 | 售后核心闭环 | 5 | 物流轨迹 + 退货申请/进度 |
+| Phase 5 | Tier 2 信息增强 | 9 | 多维度查单 + 商品详情 + 发票 |
+| Phase 6 | Tier 3 智能判断 | 12 | 判责 + 预警 + 情绪升级 |
