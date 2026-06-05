@@ -4,11 +4,14 @@
     chainlit run app.py
 """
 
+import logging
 import chainlit as cl
 from langchain_core.messages import AIMessage, HumanMessage
 
 from shopaide.agent.agent import build_agent
 from shopaide.knowledge.vector_store import get_retriever
+
+logger = logging.getLogger(__name__)
 
 
 @cl.on_chat_start
@@ -22,12 +25,16 @@ async def on_chat_start():
 
     await cl.Message(
         content=(
-            "你好！我是谷雨，你的电商售后助手。\n\n"
-            "我可以帮你：\n"
-            "- 查询订单物流状态\n"
-            "- 修改收货地址\n"
-            "- 解答退换货政策与售后规则\n\n"
-            "请问有什么可以帮你的？"
+            "## 你好！我是谷雨，你的电商售后助手\n\n"
+            "| 功能 | 说明 |\n"
+            "|------|------|\n"
+            "| 订单查询 | 查订单状态、物流轨迹、商品详情 |\n"
+            "| 退货管理 | 提交退货申请、查询退货进度 |\n"
+            "| 发票服务 | 查询发票状态、补开发票 |\n"
+            "| 智能判责 | 破损/少件自动定责分流 |\n"
+            "| 时效预警 | 延迟发货/物流停滞检测 |\n"
+            "| 政策咨询 | 退货/保修/价保政策检索 |\n\n"
+            "> 直接输入问题即可开始，支持多轮上下文对话"
         )
     ).send()
 
@@ -49,42 +56,52 @@ async def on_message(message: cl.Message):
 
     # astream_events 是 LangChain 原生异步流式 API，
     # 每次 LLM 产出 token 或工具开始/结束都会产出事件
-    async for event in agent.astream_events(
-        {"input": message.content, "chat_history": chat_history},
-        version="v2",
-    ):
-        kind = event["event"]
+    try:
+        async for event in agent.astream_events(
+            {"input": message.content, "chat_history": chat_history},
+            version="v2",
+        ):
+            kind = event["event"]
 
-        # LLM 生成 token → 逐字追加到聊天界面
-        if kind == "on_chat_model_stream":
-            content = event["data"]["chunk"].content
-            if content:
-                full_answer += content
-                await msg.stream_token(content)
+            # LLM 生成 token → 逐字追加到聊天界面
+            if kind == "on_chat_model_stream":
+                content = event["data"]["chunk"].content
+                if content:
+                    full_answer += content
+                    await msg.stream_token(content)
 
-        # 工具开始调用 → 创建侧边栏 Step（用户主界面看不到）
-        elif kind == "on_tool_start":
-            tool_name = event["name"]
-            tool_input = event["data"].get("input", {})
-            # 用 parent_id 将 Step 挂在当前消息下，界面侧边栏可折叠查看
-            step = cl.Step(
-                name=tool_name,
-                type="tool",
-                parent_id=msg.id,
-            )
-            step.input = str(tool_input)
-            step.output = ""
-            await step.send()
-            active_steps[tool_name] = step
+            # 工具开始调用 → 创建侧边栏 Step（用户主界面看不到）
+            elif kind == "on_tool_start":
+                tool_name = event["name"]
+                tool_input = event["data"].get("input", {})
+                step = cl.Step(
+                    name=tool_name,
+                    type="tool",
+                    parent_id=msg.id,
+                )
+                step.input = str(tool_input)
+                step.output = ""
+                await step.send()
+                active_steps[tool_name] = step
 
-        # 工具返回结果 → 写入对应 Step 的 output
-        elif kind == "on_tool_end":
-            tool_name = event["name"]
-            tool_output = event["data"].get("output", "")
-            if tool_name in active_steps:
-                step = active_steps.pop(tool_name)
-                step.output = str(tool_output)
-                await step.update()
+            # 工具返回结果 → 写入对应 Step 的 output
+            elif kind == "on_tool_end":
+                tool_name = event["name"]
+                tool_output = event["data"].get("output", "")
+                if tool_name in active_steps:
+                    step = active_steps.pop(tool_name)
+                    step.output = str(tool_output)
+                    await step.update()
+    except Exception:
+        logger.exception("Agent 执行异常")
+        full_answer = (
+            "抱歉，处理您的请求时遇到了问题。\n\n"
+            "可能的原因：\n"
+            "- 后端服务暂时不可用\n"
+            "- 请求超时，请尝试简化问题重试\n\n"
+            "如问题持续，请联系人工客服获得帮助。"
+        )
+        await msg.stream_token(full_answer)
 
     # 流式完成，标记消息结束
     await msg.update()
