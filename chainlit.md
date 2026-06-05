@@ -1,14 +1,31 @@
-# Welcome to Chainlit! 🚀🤖
+# 谷雨 ShopAide — 电商智能售后助手
 
-Hi there, Developer! 👋 We're excited to have you on board. Chainlit is a powerful tool designed to help you prototype, debug and share applications built on top of LLMs.
+欢迎使用谷雨售后助手！我是您的 AI 售后 Copilot，可以帮您：
 
-## Useful Links 🔗
+## 核心能力
 
-- **Documentation:** Get started with our comprehensive [Chainlit Documentation](https://docs.chainlit.io) 📚
-- **Discord Community:** Join our friendly [Chainlit Discord](https://discord.gg/k73SQ3FyUh) to ask questions, share your projects, and connect with other developers! 💬
+| 功能模块 | 我能做什么 |
+|----------|-----------|
+| 订单查询 | 查订单状态、物流轨迹、商品详情、多维度搜索 |
+| 退货管理 | 提交退货申请、查询退货进度、自动判责 |
+| 发票服务 | 查询发票状态、补开发票、修改抬头 |
+| 智能预警 | 延迟发货检测、物流停滞告警、配送超时提醒 |
+| 政策咨询 | 退货/保修/价保政策检索（基于知识库 RAG） |
+| 人工升级 | 情绪识别自动升级、投诉转人工客服 |
 
-We can't wait to see what you create with Chainlit! Happy coding! 💻😊
+## 快速上手
 
-## Welcome screen
+在下方输入框中输入您的问题，例如：
 
-To modify the welcome screen, edit the `chainlit.md` file at the root of your project. If you do not want a welcome screen, just leave this file empty.
+- "帮我查一下 GY10086 的订单"
+- "GY20480 怎么还没发货"
+- "我要退货，尺码不对"
+- "耳机保修多久"
+
+Agent 会自主调用对应工具为您处理，所有操作实时流式展示。
+
+## 提示
+
+- 对话支持多轮上下文记忆，您可以连续追问
+- 左侧边栏可查看历史会话
+- 工具调用详情可点击侧边栏 Step 查看
