@@ -1,11 +1,17 @@
 """ShopAide FastAPI 入口 — REST API 接口层"""
 
+import json
+import logging
+import os
+
 from contextlib import asynccontextmanager
 
-from fastapi import Depends, FastAPI, HTTPException, Query
+from fastapi import Depends, FastAPI, HTTPException, Query, Request
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from sqlmodel import Session
 
+from shopaide.agent.agent import build_agent
 from shopaide.database.repository import (
     check_order_alert,
     create_dispute_case,
@@ -22,6 +28,9 @@ from shopaide.database.repository import (
     update_order_address,
 )
 from shopaide.database.session import get_session, init_db
+from shopaide.integrations.feishu import parse_message_event, send_text_message
+
+logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
@@ -229,3 +238,73 @@ def get_dispute(case_id: str, session: Session = Depends(get_db)):
 def create_escalation_api(body: CreateEscalationRequest, session: Session = Depends(get_db)):
     esc = create_escalation(session, body.order_id, body.reason, body.context_summary, body.context_summary)
     return esc
+
+
+# ============================================================
+# 飞书 Bot 回调（接入飞书开放平台）
+# ============================================================
+
+# 飞书应用凭证（从环境变量加载）
+_FEISHU_APP_ID = os.getenv("FEISHU_APP_ID", "")
+_FEISHU_APP_SECRET = os.getenv("FEISHU_APP_SECRET", "")
+
+# Agent 实例（延迟初始化，避免启动时加载 LLM）
+_agent = None
+
+
+def _get_agent():
+    global _agent
+    if _agent is None:
+        _agent = build_agent()
+    return _agent
+
+
+@app.post("/api/feishu/callback")
+async def feishu_callback(request: Request):
+    """飞书事件订阅回调端点。
+
+    1. URL 验证 — 飞书首次配置时会发送 challenge，原样返回即可
+    2. 消息接收 — 用户发消息 → 解析 → Agent 处理 → 通过飞书 API 回复
+    """
+    body = await request.json()
+
+    # ---- URL 验证（飞书配置事件订阅时触发） ----
+    if body.get("type") == "url_verification":
+        challenge = body.get("challenge", "")
+        logger.info(f"飞书 URL 验证请求, challenge={challenge[:20]}...")
+        return JSONResponse({"challenge": challenge})
+
+    # ---- 消息事件处理 ----
+    parsed = parse_message_event(body)
+    if not parsed:
+        return JSONResponse({"code": 0, "msg": "ignored"})
+
+    chat_id = parsed["chat_id"]
+    user_text = parsed["text"]
+    logger.info(f"飞书消息: chat_id={chat_id[:12]}..., text={user_text[:80]}")
+
+    # 调用 Agent 处理用户消息
+    try:
+        agent = _get_agent()
+        result = await agent.ainvoke(
+            {"input": user_text, "chat_history": []},
+        )
+        reply = result["output"]
+    except Exception:
+        logger.exception("Agent 调用失败")
+        reply = (
+            "抱歉，处理您的请求时遇到了问题。\n"
+            "可能原因：后端服务暂时不可用或请求超时。\n"
+            "如问题持续，请联系人工客服。"
+        )
+
+    # 通过飞书 API 发送回复
+    if _FEISHU_APP_ID and _FEISHU_APP_SECRET:
+        try:
+            send_text_message(_FEISHU_APP_ID, _FEISHU_APP_SECRET, chat_id, reply)
+        except Exception:
+            logger.exception("飞书回复发送失败")
+    else:
+        logger.warning("FEISHU_APP_ID/FEISHU_APP_SECRET 未配置，无法发送飞书消息")
+
+    return JSONResponse({"code": 0, "msg": "ok"})
