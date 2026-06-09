@@ -263,20 +263,33 @@ def _get_agent():
 async def feishu_callback(request: Request):
     """飞书事件订阅回调端点。
 
-    1. URL 验证 — 飞书首次配置时会发送 challenge，原样返回即可
-    2. 消息接收 — 用户发消息 → 解析 → Agent 处理 → 通过飞书 API 回复
+    1. URL 验证 — 飞书首次配置时会发送 challenge，原样返回
+    2. 消息接收 — 用户发消息 → 解析 → Agent 处理 → 飞书 API 回复
     """
     body = await request.json()
 
-    # ---- URL 验证（飞书配置事件订阅时触发） ----
+    # 始终打印完整请求体，方便排查格式问题
+    logger.info(f"飞书回调: type={body.get('type', 'N/A')}, "
+                f"header_event={body.get('header', {}).get('event_type', 'N/A')}, "
+                f"keys={list(body.keys())}")
+
+    # ---- URL 验证（兼容新旧两版飞书格式） ----
+    # 旧格式: {"type": "url_verification", "challenge": "xxx"}
+    # 新格式: {"schema": "2.0", "header": {"event_type": "url_verification"}, "event": {"challenge": "xxx"}}
+    challenge = None
     if body.get("type") == "url_verification":
         challenge = body.get("challenge", "")
+    elif body.get("header", {}).get("event_type") == "url_verification":
+        challenge = body.get("event", {}).get("challenge", "")
+
+    if challenge:
         logger.info(f"飞书 URL 验证请求, challenge={challenge[:20]}...")
         return JSONResponse({"challenge": challenge})
 
     # ---- 消息事件处理 ----
     parsed = parse_message_event(body)
     if not parsed:
+        logger.info(f"飞书回调 非消息事件, 忽略")
         return JSONResponse({"code": 0, "msg": "ignored"})
 
     chat_id = parsed["chat_id"]
