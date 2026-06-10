@@ -5,13 +5,15 @@ import logging
 import os
 
 from contextlib import asynccontextmanager
+from secrets import compare_digest
 
-from fastapi import Depends, FastAPI, HTTPException, Query, Request
+from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from sqlmodel import Session
 
 from shopaide.agent.agent import build_agent
+from shopaide.config import settings
 from shopaide.database.repository import (
     check_order_alert,
     create_dispute_case,
@@ -42,7 +44,33 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="ShopAide API", version="0.5.0", lifespan=lifespan)
 
 
-def get_db():
+# ============================================================
+# API 鉴权（Bearer Token 验证）
+# ============================================================
+_API_TOKEN = settings.api_access_token
+
+
+def verify_token(authorization: str = Header(default="")) -> None:
+    """验证 API 请求的 Bearer Token。
+
+    若未配置 API_ACCESS_TOKEN 环境变量则跳过验证（兼容本地开发）。
+    配置后所有业务端点都需携带 Authorization: Bearer <token> 请求头。
+    """
+    if not _API_TOKEN:
+        return  # 未配置 token 时开放所有请求（本地开发模式）
+    if not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="缺少认证令牌，请在 Authorization 请求头中提供 Bearer Token")
+    token = authorization.removeprefix("Bearer ")
+    if not compare_digest(token, _API_TOKEN):
+        raise HTTPException(status_code=403, detail="认证令牌无效")
+
+
+def get_db(_auth: None = Depends(verify_token)):
+    """数据库 session 注入（同时携带 API 鉴权）。
+
+    所有使用 Depends(get_db) 的端点自动需要 Bearer Token。
+    /api/health 和 /api/feishu/callback 不使用 get_db，保持公开访问。
+    """
     with get_session() as session:
         yield session
 
