@@ -27,7 +27,6 @@ Thumbs.db
 .chainlit/translations/
 .files/
 
-# ChromaDB 向量库持久化数据
-chroma_db/
-cloudflared-windows-amd64.exe
-## cloudflared tunnel binary
+# cloudflared 隧道客户端二进制（不提交）
+cloudflared*.exe
+cloudflared
