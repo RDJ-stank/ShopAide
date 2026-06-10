@@ -2,6 +2,7 @@
 
 from langchain_core.tools import tool
 
+from shopaide.database.models import DamageType, Responsibility
 from shopaide.database.repository import (
     check_order_alert as _repo_check_alert,
     create_dispute_case as _repo_create_dispute,
@@ -10,7 +11,7 @@ from shopaide.database.repository import (
 )
 from shopaide.database.session import get_session
 
-DAMAGE_TYPE_OPTIONS = "物流损坏 / 商品瑕疵 / 缺失件 / 错发漏发 / 其他"
+_VALID_DAMAGE_TYPES = tuple(d.value for d in DamageType)
 
 
 @tool
@@ -24,8 +25,9 @@ def report_damage(order_id: str, description: str, damage_type: str) -> str:
         description: 问题描述（用户原文即可）
         damage_type: 问题类型，可选值：物流损坏 / 商品瑕疵 / 缺失件 / 错发漏发 / 其他
     """
-    if damage_type not in ("物流损坏", "商品瑕疵", "缺失件", "错发漏发", "其他"):
-        return f"无效的问题类型「{damage_type}」，请从以下选项中选择：{DAMAGE_TYPE_OPTIONS}"
+    if damage_type not in _VALID_DAMAGE_TYPES:
+        options = " / ".join(_VALID_DAMAGE_TYPES)
+        return f"无效的问题类型「{damage_type}」，请从以下选项中选择：{options}"
 
     with get_session() as session:
         dispute, error = _repo_create_dispute(session, order_id, description, damage_type)
@@ -45,16 +47,16 @@ def report_damage(order_id: str, description: str, damage_type: str) -> str:
             f"推荐方案：{dispute.resolution}",
             f"",
         ]
-        if dispute.responsibility == "物流责任":
+        if dispute.responsibility == Responsibility.COURIER.value:
             lines.append("快递运输过程中造成的损坏，将由物流公司赔付。")
             lines.append("我们将为您安排换货，新商品将在 2 个工作日内发出。")
-        elif dispute.responsibility == "商家责任":
+        elif dispute.responsibility == Responsibility.SELLER.value:
             lines.append("此问题为商家责任，我们将按以下流程处理：")
-            if dispute.resolution == "退货退款":
+            if "退货退款" in dispute.resolution:
                 lines.append("→ 商家承担运费，全额退款（含原运费）。")
-            elif dispute.resolution == "换货":
+            elif "换货" in dispute.resolution:
                 lines.append("→ 商家承担运费，为您换发新商品。")
-            elif dispute.resolution == "补发":
+            elif "补发" in dispute.resolution:
                 lines.append("→ 商家为您补发缺失商品，无需退回。")
         else:
             lines.append("客服将在 24 小时内人工复核，请保持手机畅通。")

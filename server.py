@@ -9,7 +9,7 @@ from secrets import compare_digest
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlmodel import Session
 
 from shopaide.agent.agent import build_agent
@@ -91,7 +91,7 @@ class LogisticsEventResponse(BaseModel):
 
 
 class UpdateAddressRequest(BaseModel):
-    new_address: str
+    new_address: str = Field(..., min_length=1, max_length=500, description="新收货地址")
 
 
 class UpdateAddressResponse(BaseModel):
@@ -100,7 +100,8 @@ class UpdateAddressResponse(BaseModel):
 
 
 class CreateReturnRequest(BaseModel):
-    order_id: str; reason: str
+    order_id: str = Field(..., min_length=1, max_length=32)
+    reason: str = Field(..., min_length=1, max_length=500)
 
 
 class ReturnResponse(BaseModel):
@@ -115,7 +116,8 @@ class InvoiceResponse(BaseModel):
 
 
 class ReissueRequest(BaseModel):
-    new_title: str; tax_number: str = ""
+    new_title: str = Field(..., min_length=1, max_length=200)
+    tax_number: str = Field(default="", max_length=32)
 
 
 class ProductResponse(BaseModel):
@@ -125,7 +127,9 @@ class ProductResponse(BaseModel):
 
 
 class CreateDisputeRequest(BaseModel):
-    order_id: str; description: str; damage_type: str
+    order_id: str = Field(..., min_length=1, max_length=32)
+    description: str = Field(..., min_length=1, max_length=1000)
+    damage_type: str = Field(..., min_length=1, max_length=32)
 
 
 class DisputeResponse(BaseModel):
@@ -140,7 +144,9 @@ class AlertResponse(BaseModel):
 
 
 class CreateEscalationRequest(BaseModel):
-    order_id: str; reason: str; context_summary: str
+    order_id: str = Field(default="", max_length=32)
+    reason: str = Field(..., min_length=1, max_length=100)
+    context_summary: str = Field(..., min_length=1, max_length=2000)
 
 
 class EscalationResponse(BaseModel):

@@ -191,40 +191,44 @@ _SEED_DISPUTES: list[dict] = [
 
 
 def init_db() -> None:
+    """初始化数据库：建表 + 写入种子数据（幂等，单 session 原子执行）。"""
     SQLModel.metadata.create_all(engine)
+
     with Session(engine) as session:
+        # 订单
         existing_ids = session.exec(select(Order.order_id)).all()
         existing_set = set(existing_ids)
         new_orders = [Order(**d) for d in _SEED_ORDERS if d["order_id"] not in existing_set]
         if new_orders:
             session.add_all(new_orders)
-            session.commit()
-    with Session(engine) as session:
+
+        # 物流轨迹
         existing_log = session.exec(select(LogisticsEvent.id)).all()
         if not existing_log:
             session.add_all([LogisticsEvent(**d) for d in _SEED_LOGISTICS])
-            session.commit()
-    with Session(engine) as session:
+
+        # 退货单
         existing_ret = session.exec(select(ReturnOrder.return_id)).all()
         existing_ret_set = set(existing_ret)
         new_returns = [ReturnOrder(**d) for d in _SEED_RETURNS if d["return_id"] not in existing_ret_set]
         if new_returns:
             session.add_all(new_returns)
-            session.commit()
-    with Session(engine) as session:
+
+        # 发票
         existing_inv = session.exec(select(Invoice.invoice_id)).all()
         existing_inv_set = set(existing_inv)
         new_invoices = [Invoice(**d) for d in _SEED_INVOICES if d["invoice_id"] not in existing_inv_set]
         if new_invoices:
             session.add_all(new_invoices)
-            session.commit()
-    with Session(engine) as session:
+
+        # 判责工单
         existing_dsp = session.exec(select(DisputeCase.case_id)).all()
         existing_dsp_set = set(existing_dsp)
         new_disputes = [DisputeCase(**d) for d in _SEED_DISPUTES if d["case_id"] not in existing_dsp_set]
         if new_disputes:
             session.add_all(new_disputes)
-            session.commit()
+
+        session.commit()
 
 
 @contextmanager

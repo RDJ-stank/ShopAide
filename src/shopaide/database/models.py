@@ -1,6 +1,5 @@
 """SQLModel 数据表定义 — Order + LogisticsEvent + ReturnOrder + Invoice + DisputeCase + Escalation"""
 
-from datetime import datetime
 from enum import Enum
 
 from sqlmodel import Field, SQLModel
@@ -33,6 +32,11 @@ class DisputeStatus(str, Enum):
     RESOLVED = "已解决"
 
 
+class EscalationStatus(str, Enum):
+    PENDING = "待处理"
+    RESOLVED = "已处理"
+
+
 class DamageType(str, Enum):
     COURIER = "物流损坏"
     DEFECT = "商品瑕疵"
@@ -48,12 +52,19 @@ class Responsibility(str, Enum):
     BUYER = "用户责任"
 
 
+class Resolution(str, Enum):
+    """处理方案枚举"""
+    REFUND = "退货退款"
+    REPLACE = "换货"
+    RESEND = "补发"
+
+
 class Order(SQLModel, table=True):
     __tablename__ = "orders"
     id: int | None = Field(default=None, primary_key=True)
     order_id: str = Field(max_length=32, unique=True, index=True)
     status: str = Field(max_length=16, default=OrderStatus.PENDING_SHIPPING)
-    created_time: str = Field(max_length=32, default="", description="下单时间")
+    created_time: str = Field(max_length=32, default="")
     carrier: str = Field(max_length=64, default="")
     tracking_number: str = Field(max_length=64, default="")
     current_location: str = Field(max_length=128, default="")
@@ -106,7 +117,6 @@ class Invoice(SQLModel, table=True):
 
 
 class DisputeCase(SQLModel, table=True):
-    """判责工单表 — 用户报告商品问题时创建"""
     __tablename__ = "dispute_cases"
     id: int | None = Field(default=None, primary_key=True)
     case_id: str = Field(max_length=32, unique=True, index=True)
@@ -122,7 +132,6 @@ class DisputeCase(SQLModel, table=True):
 
 
 class Escalation(SQLModel, table=True):
-    """升级工单表 — 用户情绪激动或问题超出AI能力时创建"""
     __tablename__ = "escalations"
     id: int | None = Field(default=None, primary_key=True)
     escalation_id: str = Field(max_length=32, unique=True, index=True)
@@ -130,5 +139,5 @@ class Escalation(SQLModel, table=True):
     reason: str = Field(max_length=64)
     user_description: str = Field(max_length=512)
     context_summary: str = Field(max_length=1024)
-    status: str = Field(max_length=16, default="待处理")
+    status: str = Field(max_length=16, default=EscalationStatus.PENDING)
     created_time: str = Field(max_length=32, default="")

@@ -5,10 +5,23 @@ from datetime import datetime, timedelta
 from sqlmodel import Session, select
 
 from shopaide.database.models import (
-    DisputeCase, Escalation, Invoice, LogisticsEvent, Order, ReturnOrder,
+    DamageType,
+    DisputeCase,
+    DisputeStatus,
+    Escalation,
+    EscalationStatus,
+    Invoice,
+    InvoiceStatus,
+    LogisticsEvent,
+    Order,
+    OrderStatus,
+    Resolution,
+    Responsibility,
+    ReturnOrder,
+    ReturnStatus,
 )
 
-_IMMUTABLE_STATUSES = {"已签收", "已取消"}
+_IMMUTABLE_STATUSES = {OrderStatus.DELIVERED.value, OrderStatus.CANCELLED.value}
 
 
 # ============================================================
@@ -57,13 +70,16 @@ def create_return_order(session: Session, order_id: str, reason: str) -> tuple[R
     order = get_order_by_id(session, order_id)
     if not order:
         return None, f"未找到订单 {order_id}，请核实订单号是否正确。"
-    if order.status != "已签收":
+    if order.status != OrderStatus.DELIVERED.value:
         return None, f"订单 {order_id} 当前状态为「{order.status}」，仅已签收的订单支持退货。"
     if order.estimated_delivery:
         try:
             delivery_date = datetime.strptime(order.estimated_delivery, "%Y-%m-%d")
             if datetime.now() > delivery_date + timedelta(days=7):
-                return None, f"订单 {order_id} 签收已超过 7 天，不支持无理由退货。如为质量问题，请联系人工客服。"
+                return None, (
+                    f"订单 {order_id} 签收已超过 7 天，不支持无理由退货。"
+                    f"如为质量问题，请联系人工客服。"
+                )
         except ValueError:
             pass
     existing = session.exec(select(ReturnOrder).where(ReturnOrder.order_id == order_id)).first()
@@ -74,7 +90,8 @@ def create_return_order(session: Session, order_id: str, reason: str) -> tuple[R
     return_id = f"RTN{today}-{count + 1:03d}"
     return_order = ReturnOrder(
         return_id=return_id, order_id=order_id, reason=reason,
-        status="审核中", apply_time=datetime.now().strftime("%Y-%m-%d %H:%M"),
+        status=ReturnStatus.REVIEWING.value,
+        apply_time=datetime.now().strftime("%Y-%m-%d %H:%M"),
     )
     session.add(return_order)
     return return_order, None
@@ -95,20 +112,22 @@ def get_invoice_by_order_id(session: Session, order_id: str) -> Invoice | None:
     return session.exec(select(Invoice).where(Invoice.order_id == order_id)).first()
 
 
-def create_invoice_reissue(session: Session, order_id: str, new_title: str, tax_number: str = "") -> tuple[Invoice | None, str | None]:
+def create_invoice_reissue(
+    session: Session, order_id: str, new_title: str, tax_number: str = ""
+) -> tuple[Invoice | None, str | None]:
     order = get_order_by_id(session, order_id)
     if not order:
         return None, f"未找到订单 {order_id}，请核实订单号是否正确。"
     existing = get_invoice_by_order_id(session, order_id)
     if not existing:
         return None, f"订单 {order_id} 尚未开票，请先申请开具发票。"
-    if existing.status == "未开":
+    if existing.status == InvoiceStatus.UNISSUED.value:
         return None, f"订单 {order_id} 的发票尚未开具，请先联系客服申请开票。"
-    if existing.status == "已申请补开":
+    if existing.status == InvoiceStatus.REISSUE_PENDING.value:
         return None, f"订单 {order_id} 已存在补开申请（发票号：{existing.invoice_id}），请勿重复申请。"
     existing.title = new_title
     existing.tax_number = tax_number
-    existing.status = "已申请补开"
+    existing.status = InvoiceStatus.REISSUE_PENDING.value
     session.add(existing)
     return existing, None
 
@@ -118,20 +137,20 @@ def create_invoice_reissue(session: Session, order_id: str, new_title: str, tax_
 # ============================================================
 def _determine_responsibility(order: Order, damage_type: str) -> tuple[str, str]:
     """根据伤害类型和订单上下文自动判定责任方和推荐处理方案。"""
-    if damage_type == "物流损坏":
-        if order.status in ("运输中", "已签收"):
-            return "物流责任", "换货"
-        return "待判定", ""
-    elif damage_type == "商品瑕疵":
-        if order.status == "已签收":
-            return "商家责任", "退货退款"
-        return "商家责任", "换货"
-    elif damage_type == "缺失件":
-        return "商家责任", "补发"
-    elif damage_type == "错发漏发":
-        return "商家责任", "换货"
+    if damage_type == DamageType.COURIER.value:
+        if order.status in (OrderStatus.IN_TRANSIT.value, OrderStatus.DELIVERED.value):
+            return Responsibility.COURIER.value, Resolution.REPLACE.value
+        return Responsibility.PENDING.value, ""
+    elif damage_type == DamageType.DEFECT.value:
+        if order.status == OrderStatus.DELIVERED.value:
+            return Responsibility.SELLER.value, Resolution.REFUND.value
+        return Responsibility.SELLER.value, Resolution.REPLACE.value
+    elif damage_type == DamageType.MISSING.value:
+        return Responsibility.SELLER.value, Resolution.RESEND.value
+    elif damage_type == DamageType.WRONG_ITEM.value:
+        return Responsibility.SELLER.value, Resolution.REPLACE.value
     else:
-        return "待判定", ""
+        return Responsibility.PENDING.value, ""
 
 
 def create_dispute_case(
@@ -141,19 +160,20 @@ def create_dispute_case(
     order = get_order_by_id(session, order_id)
     if not order:
         return None, f"未找到订单 {order_id}，请核实订单号是否正确。"
-    if order.status not in ("运输中", "已签收"):
+    if order.status not in (OrderStatus.IN_TRANSIT.value, OrderStatus.DELIVERED.value):
         return None, f"订单 {order_id} 当前状态为「{order.status}」，不支持创建判责工单。"
 
     existing = session.exec(select(DisputeCase).where(
-        DisputeCase.order_id == order_id, DisputeCase.status == "处理中"
+        DisputeCase.order_id == order_id, DisputeCase.status == DisputeStatus.PROCESSING.value
     )).first()
     if existing:
         return None, f"订单 {order_id} 已有处理中的判责工单（编号：{existing.case_id}），请勿重复提交。"
 
-    # 检查是否已有活跃的退货工单
     active_return = session.exec(select(ReturnOrder).where(
         ReturnOrder.order_id == order_id,
-        ReturnOrder.status.not_in(["已完成", "已拒绝"]),
+        ReturnOrder.status.not_in([
+            ReturnStatus.COMPLETED.value, ReturnStatus.REJECTED.value
+        ]),
     )).first()
     if active_return:
         return None, (
@@ -172,7 +192,7 @@ def create_dispute_case(
         case_id=case_id, order_id=order_id,
         description=description, damage_type=damage_type,
         responsibility=responsibility, resolution=resolution,
-        status="处理中",
+        status=DisputeStatus.PROCESSING.value,
         created_time=datetime.now().strftime("%Y-%m-%d %H:%M"),
     )
     session.add(dispute)
@@ -187,11 +207,7 @@ def get_dispute_by_id(session: Session, case_id: str) -> DisputeCase | None:
 # 时效预警
 # ============================================================
 def check_order_alert(session: Session, order_id: str) -> dict:
-    """检查订单是否存在时效风险（延迟发货/物流停滞/配送超时）。
-
-    Returns:
-        dict with keys: has_alert (bool), alert_type, detail, suggestion
-    """
+    """检查订单是否存在时效风险（延迟发货/物流停滞/配送超时）。"""
     order = get_order_by_id(session, order_id)
     if not order:
         return {"has_alert": False, "alert_type": "", "detail": "订单不存在", "suggestion": ""}
@@ -199,7 +215,7 @@ def check_order_alert(session: Session, order_id: str) -> dict:
     now = datetime.now()
 
     # 待发货超过 48h
-    if order.status == "待发货":
+    if order.status == OrderStatus.PENDING_SHIPPING.value:
         if order.created_time:
             try:
                 created_dt = datetime.strptime(order.created_time, "%Y-%m-%d %H:%M")
@@ -214,7 +230,7 @@ def check_order_alert(session: Session, order_id: str) -> dict:
                 pass
 
     # 运输中：最后物流事件超过 48h → 物流停滞
-    if order.status == "运输中":
+    if order.status == OrderStatus.IN_TRANSIT.value:
         trail = get_logistics_trail(session, order_id)
         if trail:
             last_event = trail[-1]
@@ -271,7 +287,8 @@ def create_escalation(
     esc = Escalation(
         escalation_id=esc_id, order_id=order_id,
         reason=reason, user_description=user_description,
-        context_summary=context_summary, status="待处理",
+        context_summary=context_summary,
+        status=EscalationStatus.PENDING.value,
         created_time=datetime.now().strftime("%Y-%m-%d %H:%M"),
     )
     session.add(esc)
