@@ -1,0 +1,41 @@
+name: CI — Lint + DB Test
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+jobs:
+  lint-and-db:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -e ".[dev]"
+
+      - name: Ruff lint
+        run: ruff check src/ --select E,F,I,N --ignore E501,F401,N818
+
+      - name: Database smoke test
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          LLM_PROVIDER: deepseek
+        run: |
+          python -c "
+          from shopaide.database.session import init_db, get_session
+          from shopaide.database.repository import get_order_by_id
+          init_db()
+          with get_session() as s:
+              o = get_order_by_id(s, 'GY10086')
+              assert o and o.order_id == 'GY10086'
+              o2 = get_order_by_id(s, 'GY99999')
+              assert o2 is None
+          print('DB tests passed')
+          "

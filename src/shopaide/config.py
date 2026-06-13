@@ -39,6 +39,9 @@ class Settings:
     # API 访问令牌（不设则允许所有请求，设为空字符串则需在 .env 中配置）
     api_access_token: str = os.getenv("API_ACCESS_TOKEN", "")
 
+    # Sentry DSN（错误监控，不设则跳过 Sentry 初始化）
+    sentry_dsn: str = os.getenv("SENTRY_DSN", "")
+
     def _resolve(self) -> dict:
         """根据 LLM_PROVIDER 拼出最终参数，环境变量可手动覆盖"""
         preset = LLM_PROVIDER_PRESETS.get(

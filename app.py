@@ -5,8 +5,26 @@
 """
 
 import logging
+import os
+
 import chainlit as cl
 from langchain_core.messages import AIMessage, HumanMessage
+
+from shopaide.config import settings
+
+# ---- Sentry 错误监控（可选，未配 SENTRY_DSN 则跳过） ----
+if settings.sentry_dsn:
+    try:
+        import sentry_sdk
+        sentry_sdk.init(
+            dsn=settings.sentry_dsn,
+            traces_sample_rate=1.0,
+            profiles_sample_rate=1.0,
+            environment=os.getenv("ENV", "development"),
+        )
+        logging.getLogger("sentry_sdk").setLevel(logging.WARNING)
+    except ImportError:
+        pass
 
 from shopaide.agent.agent import build_agent
 from shopaide.knowledge.vector_store import get_retriever

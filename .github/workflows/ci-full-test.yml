@@ -1,0 +1,47 @@
+name: CI — Full Agent Test (Manual)
+
+on:
+  workflow_dispatch:
+    inputs:
+      skip_rag:
+        description: "Skip RAG tests (faster)"
+        type: boolean
+        default: false
+
+jobs:
+  full-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -e ".[dev]"
+
+      - name: Agent integration tests (14 scenarios)
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          LLM_PROVIDER: deepseek
+        run: |
+          rm -f shopaide.db
+          python tests/test_agent.py
+
+      - name: RAG retrieval tests (4 scenarios)
+        if: ${{ !inputs.skip_rag }}
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          LLM_PROVIDER: deepseek
+        run: |
+          python tests/test_rag.py
+
+      - name: Hallucination evaluation (12 scenarios)
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          LLM_PROVIDER: deepseek
+        run: |
+          python tests/test_hallucination.py

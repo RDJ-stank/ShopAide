@@ -34,6 +34,20 @@ from shopaide.integrations.feishu import parse_message_event, send_text_message
 
 logger = logging.getLogger(__name__)
 
+# ---- Sentry 错误监控（可选，未配 SENTRY_DSN 则跳过） ----
+if settings.sentry_dsn:
+    try:
+        import sentry_sdk
+        sentry_sdk.init(
+            dsn=settings.sentry_dsn,
+            traces_sample_rate=1.0,
+            profiles_sample_rate=1.0,
+            environment=os.getenv("ENV", "development"),
+        )
+        logging.getLogger("sentry_sdk").setLevel(logging.WARNING)
+    except ImportError:
+        pass
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
