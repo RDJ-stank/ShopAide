@@ -65,8 +65,11 @@ Page({
         this.addMessage('assistant', '抱歉，请求超时。请稍后重试或联系人工客服。')
       }
     } catch (err) {
-      console.error(err)
-      this.addMessage('assistant', '抱歉，网络异常。请检查连接后重试。')
+      console.error('wx.request 失败:', JSON.stringify(err))
+      var msg = '抱歉，网络异常。'
+      // 把具体错误信息也显示出来，方便排查
+      if (err && err.errMsg) msg += ' [' + err.errMsg + ']'
+      this.addMessage('assistant', msg)
     } finally {
       this.setData({ loading: false })
     }
