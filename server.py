@@ -9,7 +9,7 @@ from contextlib import asynccontextmanager
 from secrets import compare_digest
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field
 from sqlmodel import Session
 
@@ -177,6 +177,21 @@ class EscalationResponse(BaseModel):
 @app.get("/api/health")
 def health():
     return {"status": "ok"}
+
+
+# ---- 微信校验文件（业务域名验证用） ----
+@app.get("/{filename}.txt")
+def wechat_verify(filename: str):
+    """微信业务域名校验文件路由。
+
+    将微信下载的 .txt 校验文件放到项目根目录,
+    微信会自动访问 https://域名/XXXX.txt 验证。
+    验证通过后可删除此路由。
+    """
+    filepath = os.path.join(os.path.dirname(__file__), f"{filename}.txt")
+    if os.path.exists(filepath):
+        return FileResponse(filepath)
+    raise HTTPException(status_code=404)
 
 
 # ============================================================
