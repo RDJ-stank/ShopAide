@@ -1,4 +1,4 @@
-const API_BASE = 'https://ipaq-perform-refers-small.trycloudflare.com'
+const API_BASE = 'https://witness-boss-prohibited-rapid.trycloudflare.com'
 
 Page({
   data: {

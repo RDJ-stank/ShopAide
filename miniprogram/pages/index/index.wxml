@@ -1,15 +1,9 @@
-<!--
-  谷雨 ShopAide — 原生小程序聊天页面
-  通过 wx.request 调用 POST /api/chat + 轮询 GET /api/chat/{task_id}
--->
 <view class="container">
-  <!-- 顶部标题栏 -->
   <view class="header">
     <text class="header-title">谷雨 ShopAide</text>
     <text class="header-sub">电商智能售后助手</text>
   </view>
 
-  <!-- 消息列表 -->
   <scroll-view class="chat-list" scroll-y scroll-into-view="{{scrollTo}}" scroll-with-animation>
     <view wx:for="{{messages}}" wx:key="id" id="msg-{{index}}" class="msg-row {{item.role}}">
       <view class="msg-bubble {{item.role}}">
@@ -17,7 +11,6 @@
       </view>
     </view>
 
-    <!-- 加载中 -->
     <view wx:if="{{loading}}" class="msg-row assistant">
       <view class="msg-bubble assistant typing">
         <text class="typing-dot">●</text>
@@ -27,7 +20,6 @@
     </view>
   </scroll-view>
 
-  <!-- 底部输入区 -->
   <view class="input-area">
     <input class="input-box"
            value="{{inputText}}"
