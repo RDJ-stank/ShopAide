@@ -3,6 +3,7 @@
 import json
 import logging
 import os
+import uuid
 
 from contextlib import asynccontextmanager
 from secrets import compare_digest
@@ -31,6 +32,7 @@ from shopaide.database.repository import (
 )
 from shopaide.database.session import get_session, init_db
 from shopaide.integrations.feishu import parse_message_event, send_text_message
+from shopaide.messaging.redis_queue import RedisQueue
 
 logger = logging.getLogger(__name__)
 
@@ -296,6 +298,16 @@ def create_escalation_api(body: CreateEscalationRequest, session: Session = Depe
 _FEISHU_APP_ID = os.getenv("FEISHU_APP_ID", "")
 _FEISHU_APP_SECRET = os.getenv("FEISHU_APP_SECRET", "")
 
+# Redis 队列（可选，未配 REDIS_URL 则走同步 Agent 调用）
+_redis_queue: RedisQueue | None = None
+if settings.redis_url:
+    try:
+        _redis_queue = RedisQueue(settings.redis_url)
+        _redis_queue.queue_length()  # 探测连接
+        logger.info(f"Redis 队列已连接: {settings.redis_url}")
+    except Exception as e:
+        logger.warning(f"Redis 连接失败({e})，回退到同步 Agent 模式")
+
 # Agent 实例（延迟初始化，避免启动时加载 LLM）
 _agent = None
 
@@ -369,3 +381,70 @@ async def feishu_callback(request: Request):
         logger.warning("FEISHU_APP_ID/FEISHU_APP_SECRET 未配置，无法发送飞书消息")
 
     return JSONResponse({"code": 0, "msg": "ok"})
+
+
+# ============================================================
+# 通用聊天（消息队列模式 — 高并发入口）
+# ============================================================
+
+class ChatRequest(BaseModel):
+    input: str = Field(..., min_length=1, max_length=2000)
+    chat_history: list = Field(default_factory=list)
+
+
+class ChatResponse(BaseModel):
+    task_id: str
+    message: str = "任务已接收，请轮询结果"
+
+
+class ChatResultResponse(BaseModel):
+    task_id: str
+    ready: bool
+    output: str | None = None
+    queue_length: int = 0
+
+
+# 同步回退缓存（无 Redis 时用）
+_fallback_results: dict[str, str] = {}
+
+
+@app.post("/api/chat", response_model=ChatResponse)
+def chat_queue(body: ChatRequest):
+    """将用户消息推入 Redis 队列，异步处理。
+
+    Worker 进程从队列消费后，结果写入 Redis 缓存。
+    前端轮询 /api/chat/{task_id} 获取结果。
+    如未配置 REDIS_URL，则回退到同步 Agent 调用（兼容本地开发）。
+    """
+    if _redis_queue is None:
+        agent = _get_agent()
+        result = agent.invoke({
+            "input": body.input,
+            "chat_history": body.chat_history,
+        })
+        tid = str(uuid.uuid4())[:8]
+        _fallback_results[tid] = result["output"]
+        return {"task_id": tid, "message": "任务已完成（同步模式）"}
+
+    task_id = _redis_queue.push({
+        "input": body.input,
+        "chat_history": [{"role": getattr(m, "type", "user"), "content": getattr(m, "content", "")}
+                         for m in body.chat_history],
+    })
+    return ChatResponse(task_id=task_id)
+
+
+@app.get("/api/chat/{task_id}", response_model=ChatResultResponse)
+def chat_result(task_id: str):
+    """轮询任务结果。客户端每 1-2 秒调用一次，直到 ready=true。"""
+    if _redis_queue is None:
+        output = _fallback_results.pop(task_id, None)
+        if output is not None:
+            return ChatResultResponse(task_id=task_id, ready=True, output=output)
+        return ChatResultResponse(task_id=task_id, ready=False)
+
+    output = _redis_queue.get_result(task_id)
+    if output is not None:
+        return ChatResultResponse(task_id=task_id, ready=True, output=output)
+    qlen = _redis_queue.queue_length()
+    return ChatResultResponse(task_id=task_id, ready=False, queue_length=qlen)

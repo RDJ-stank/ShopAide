@@ -1,0 +1,14 @@
+<!--
+  谷雨 ShopAide — 微信小程序 WebView 页面
+
+  使用方法:
+  1. 将 cloudflared 生成的公网地址替换下方 src
+  2. 在微信公众平台配置业务域名（https://xxx.trycloudflare.com）
+  3. 微信开发者工具打开此目录 → 预览
+
+  面试说明:
+  此页面通过小程序 WebView 内嵌 Chainlit Web UI，
+  实现零后端代码改动的跨端复用。
+  Agent 核心、12 工具、流式输出完全不变。
+-->
+<web-view src="https://YOUR_TUNNEL.trycloudflare.com"></web-view>
