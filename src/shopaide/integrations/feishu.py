@@ -1,10 +1,11 @@
 """飞书集成模块 — Tenant Token + 消息发送 + 事件回调处理"""
 
 import json
-import time
 import logging
-import requests
+import time
 from threading import Lock
+
+import requests
 
 logger = logging.getLogger(__name__)
 

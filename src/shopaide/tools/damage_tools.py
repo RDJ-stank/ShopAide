@@ -5,7 +5,11 @@ from langchain_core.tools import tool
 from shopaide.database.models import DamageType, Responsibility
 from shopaide.database.repository import (
     check_order_alert as _repo_check_alert,
+)
+from shopaide.database.repository import (
     create_dispute_case as _repo_create_dispute,
+)
+from shopaide.database.repository import (
     get_dispute_by_id,
     get_order_by_id,
 )
@@ -35,17 +39,17 @@ def report_damage(order_id: str, description: str, damage_type: str) -> str:
             return error
 
         lines = [
-            f"判责工单已创建！",
-            f"",
+            "判责工单已创建！",
+            "",
             f"工单编号：{dispute.case_id}",
             f"订单号：{order_id}",
             f"问题类型：{dispute.damage_type}",
             f"问题描述：{dispute.description}",
-            f"",
-            f"--- 系统判定 ---",
+            "",
+            "--- 系统判定 ---",
             f"责任方：{dispute.responsibility}",
             f"推荐方案：{dispute.resolution}",
-            f"",
+            "",
         ]
         if dispute.responsibility == Responsibility.COURIER.value:
             lines.append("快递运输过程中造成的损坏，将由物流公司赔付。")

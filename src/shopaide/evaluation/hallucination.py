@@ -219,11 +219,7 @@ def _check_policy_grounded(query: str, output: str, trace: ToolTraceCallback) ->
                           "非政策类问题，无需校验", trace.calls, "")
 
     if called_search:
-        # 检查是否引用了政策原文的关键片段
-        policy_outputs = [c["output"] for c in trace.calls if c["tool_name"] == "search_return_policy"]
-        policy_text = "\n".join(policy_outputs)
-        # 从 output 中提取长度>20 的连续子串，检查是否在 policy_text 中出现
-        # 简化：检查是否有政策特有的数字+单位出现在 output 中
+        # 检查是否有政策特有的数字+单位出现在 output 中
         policy_cite_markers = ["7 天", "7天", "15 天", "15天", "30 天", "30天",
                                "24 小时", "3 天", "1-3 个工作日", "3-7 个工作日",
                                "1 年", "3 个月", "48 小时"]
@@ -242,7 +238,7 @@ def _check_policy_grounded(query: str, output: str, trace: ToolTraceCallback) ->
         "政策类问题但 Agent 未调用 search_return_policy 工具，"
         "回复可能基于 LLM 自身记忆而非项目知识库。",
         trace.calls,
-        f"Query 含政策关键词但无 RAG 工具调用"
+        "Query 含政策关键词但无 RAG 工具调用"
     )
 
 

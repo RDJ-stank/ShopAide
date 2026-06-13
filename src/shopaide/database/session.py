@@ -6,7 +6,12 @@ from contextlib import contextmanager
 from sqlmodel import Session, SQLModel, create_engine, select
 
 from shopaide.database.models import (
-    DisputeCase, Escalation, Invoice, LogisticsEvent, Order, ReturnOrder,
+    DisputeCase,
+    Escalation,
+    Invoice,
+    LogisticsEvent,
+    Order,
+    ReturnOrder,
 )
 
 _DB_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "..")

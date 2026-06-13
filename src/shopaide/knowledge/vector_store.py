@@ -1,6 +1,7 @@
 """向量存储模块 — 基于 ChromaDB + BAAI/bge-small-zh-v1.5 中文 Embedding"""
 
 import os
+
 from langchain_chroma import Chroma
 from langchain_huggingface import HuggingFaceEmbeddings
 
