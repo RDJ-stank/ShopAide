@@ -9,6 +9,7 @@ from contextlib import asynccontextmanager
 from secrets import compare_digest
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field
 from sqlmodel import Session
@@ -58,6 +59,15 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="ShopAide API", version="0.5.0", lifespan=lifespan)
+
+# CORS — 允许小程序、Web UI 等前端跨域访问
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 # ============================================================

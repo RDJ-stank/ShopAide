@@ -1,14 +1,44 @@
 <!--
-  谷雨 ShopAide — 微信小程序 WebView 页面
-
-  使用方法:
-  1. 将 cloudflared 生成的公网地址替换下方 src
-  2. 在微信公众平台配置业务域名（https://xxx.trycloudflare.com）
-  3. 微信开发者工具打开此目录 → 预览
-
-  面试说明:
-  此页面通过小程序 WebView 内嵌 Chainlit Web UI，
-  实现零后端代码改动的跨端复用。
-  Agent 核心、12 工具、流式输出完全不变。
+  谷雨 ShopAide — 原生小程序聊天页面
+  通过 wx.request 调用 POST /api/chat + 轮询 GET /api/chat/{task_id}
 -->
-<web-view src="https://stolen-occasional-codes-graphical.trycloudflare.com"></web-view>
+<view class="container">
+  <!-- 顶部标题栏 -->
+  <view class="header">
+    <text class="header-title">谷雨 ShopAide</text>
+    <text class="header-sub">电商智能售后助手</text>
+  </view>
+
+  <!-- 消息列表 -->
+  <scroll-view class="chat-list" scroll-y scroll-into-view="{{scrollTo}}" scroll-with-animation>
+    <view wx:for="{{messages}}" wx:key="id" id="msg-{{index}}" class="msg-row {{item.role}}">
+      <view class="msg-bubble {{item.role}}">
+        <text class="msg-text" user-select>{{item.content}}</text>
+      </view>
+    </view>
+
+    <!-- 加载中 -->
+    <view wx:if="{{loading}}" class="msg-row assistant">
+      <view class="msg-bubble assistant typing">
+        <text class="typing-dot">●</text>
+        <text class="typing-dot">●</text>
+        <text class="typing-dot">●</text>
+      </view>
+    </view>
+  </scroll-view>
+
+  <!-- 底部输入区 -->
+  <view class="input-area">
+    <input class="input-box"
+           value="{{inputText}}"
+           placeholder="输入问题，如：帮我查订单 GY10086"
+           bindinput="onInput"
+           bindconfirm="sendMessage"
+           confirm-type="send"
+           adjust-position="{{true}}"
+           maxlength="500"/>
+    <button class="send-btn" bindtap="sendMessage" disabled="{{!inputText || loading}}">
+      发送
+    </button>
+  </view>
+</view>
