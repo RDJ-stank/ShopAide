@@ -1,15 +1,33 @@
 const API_BASE = 'https://witness-boss-prohibited-rapid.trycloudflare.com'
+const STORAGE_MSG_KEY = 'shopaide_messages'
+const STORAGE_HIST_KEY = 'shopaide_chat_history'
+const STORAGE_TIME_KEY = 'shopaide_last_active'
+const SESSION_TTL_MS = 30 * 60 * 1000  // 30 分钟无操作自动清空
 
 Page({
   data: {
     messages: [],
     inputText: '',
     loading: false,
-    scrollTo: '',
-    chatHistory: []
+    scrollTo: ''
   },
 
   onLoad() {
+    // 从本地存储恢复会话（30 分钟内有效）
+    const lastActive = wx.getStorageSync(STORAGE_TIME_KEY)
+    if (lastActive && (Date.now() - lastActive < SESSION_TTL_MS)) {
+      const savedMessages = wx.getStorageSync(STORAGE_MSG_KEY) || []
+      const savedHistory = wx.getStorageSync(STORAGE_HIST_KEY) || []
+      if (savedMessages.length > 0) {
+        this.setData({
+          messages: savedMessages,
+          chatHistory: savedHistory,
+          scrollTo: 'msg-' + (savedMessages.length - 1)
+        })
+        return
+      }
+    }
+    // 新会话
     this.addMessage('assistant', '你好！我是谷雨，你的电商售后助手。\n\n我可以帮你查订单、退货、发票、售后政策等问题。\n直接输入即可开始。')
   },
 
@@ -24,7 +42,19 @@ Page({
       messages,
       scrollTo: 'msg-' + (messages.length - 1)
     })
+    // 持久化消息列表
+    wx.setStorageSync(STORAGE_MSG_KEY, messages)
+    wx.setStorageSync(STORAGE_TIME_KEY, Date.now())
     return messages
+  },
+
+  // 清空会话
+  clearHistory() {
+    wx.removeStorageSync(STORAGE_MSG_KEY)
+    wx.removeStorageSync(STORAGE_HIST_KEY)
+    wx.removeStorageSync(STORAGE_TIME_KEY)
+    this.setData({ messages: [], chatHistory: [], inputText: '' })
+    this.addMessage('assistant', '会话已清空。有什么可以帮你的？')
   },
 
   async sendMessage() {
@@ -35,14 +65,12 @@ Page({
     this.addMessage('user', text)
 
     try {
-      // 1. 提交任务
       const postRes = await this.wxPost('/api/chat', {
         input: text,
         chat_history: this.data.chatHistory
       })
       const taskId = postRes.data.task_id
 
-      // 2. 轮询结果（最多等 60 秒）
       let output = null
       for (let i = 0; i < 30; i++) {
         await this.sleep(2000)
@@ -55,19 +83,19 @@ Page({
 
       if (output) {
         this.addMessage('assistant', output)
-        // 更新对话历史（给下轮用）
+        // 持久化对话历史
         const hist = [...this.data.chatHistory,
           { role: 'user', content: text },
           { role: 'assistant', content: output }
-        ].slice(-10) // 最多保留 10 轮
+        ].slice(-10)
         this.setData({ chatHistory: hist })
+        wx.setStorageSync(STORAGE_HIST_KEY, hist)
       } else {
         this.addMessage('assistant', '抱歉，请求超时。请稍后重试或联系人工客服。')
       }
     } catch (err) {
       console.error('wx.request 失败:', JSON.stringify(err))
       var msg = '抱歉，网络异常。'
-      // 把具体错误信息也显示出来，方便排查
       if (err && err.errMsg) msg += ' [' + err.errMsg + ']'
       this.addMessage('assistant', msg)
     } finally {
@@ -75,7 +103,6 @@ Page({
     }
   },
 
-  // 封装 wx.request 为 Promise
   wxPost(url, data) {
     return new Promise((resolve, reject) => {
       wx.request({

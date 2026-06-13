@@ -1,7 +1,7 @@
 <view class="container">
   <view class="header">
     <text class="header-title">谷雨 ShopAide</text>
-    <text class="header-sub">电商智能售后助手</text>
+    <text class="header-sub" bindtap="clearHistory">电商智能售后助手 · 长按清空会话</text>
   </view>
 
   <scroll-view class="chat-list" scroll-y scroll-into-view="{{scrollTo}}" scroll-with-animation>
