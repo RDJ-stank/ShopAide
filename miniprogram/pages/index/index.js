@@ -1,4 +1,4 @@
-const API_BASE = 'https://witness-boss-prohibited-rapid.trycloudflare.com'
+const API_BASE = 'https://shopaide.xyz'
 const STORAGE_MSG_KEY = 'shopaide_messages'
 const STORAGE_HIST_KEY = 'shopaide_chat_history'
 const STORAGE_TIME_KEY = 'shopaide_last_active'
