@@ -2,7 +2,7 @@
 
 from typing import Sequence
 
-from langchain.agents import AgentExecutor, create_tool_calling_agent
+from langchain.agents import create_agent
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.tools import BaseTool
 from langchain_openai import ChatOpenAI
@@ -59,19 +59,18 @@ SYSTEM_PROMPT = """你是一名电商售后助手，名字叫「谷雨」。
 """
 
 
-def build_agent(extra_tools: Sequence[BaseTool] | None = None) -> AgentExecutor:
+def build_agent(extra_tools: Sequence[BaseTool] | None = None):
+    """构建并返回一个即用型 Agent（LangChain 1.3+ create_agent 直接返回可调用对象）。"""
     llm = ChatOpenAI(**settings.llm_kwargs)
-
-    prompt = ChatPromptTemplate.from_messages([
-        ("system", SYSTEM_PROMPT),
-        ("placeholder", "{chat_history}"),
-        ("human", "{input}"),
-        ("placeholder", "{agent_scratchpad}"),
-    ])
 
     tools = list(ALL_TOOLS)
     if extra_tools:
         tools.extend(extra_tools)
 
-    agent = create_tool_calling_agent(llm, tools, prompt)
-    return AgentExecutor(agent=agent, tools=tools, verbose=True, handle_parsing_errors=True)
+    # LangChain 1.3+ create_agent 替代旧版 create_tool_calling_agent + AgentExecutor
+    agent = create_agent(
+        llm,
+        tools,
+        system_prompt=SYSTEM_PROMPT,
+    )
+    return agent
