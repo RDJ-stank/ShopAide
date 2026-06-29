@@ -33,6 +33,7 @@ from shopaide.database.repository import (
 )
 from shopaide.database.session import get_session, init_db
 from shopaide.integrations.feishu import parse_message_event, send_text_message
+from shopaide.messaging.network_monitor import monitor as network_monitor
 from shopaide.messaging.redis_queue import RedisQueue
 
 logger = logging.getLogger(__name__)
@@ -55,6 +56,8 @@ if settings.sentry_dsn:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_db()
+    # 启动网络监控后台轮询（供 /api/health network 字段使用）
+    network_monitor.start_polling()
     yield
 
 
@@ -186,7 +189,10 @@ class EscalationResponse(BaseModel):
 # ============================================================
 @app.get("/api/health")
 def health():
-    return {"status": "ok"}
+    return {
+        "status": "ok",
+        "network": "online" if network_monitor.is_online else "offline",
+    }
 
 
 # ---- 微信校验文件（业务域名验证用） ----
